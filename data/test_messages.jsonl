@@ -1,0 +1,50 @@
+{"id": 1, "lang": "hinglish", "text": "Nal ka paani peela aa raha hai, badboo hai, 2 din se", "expected": {"smell": "sewage", "colour": "yellow", "taste": "unknown", "since_days": 2, "sick_count": null}}
+{"id": 2, "lang": "hinglish", "text": "Paani mein naali jaisi badboo aa rahi hai aaj subah se", "expected": {"smell": "sewage", "colour": "unknown", "taste": "unknown", "since_days": 0, "sick_count": null}}
+{"id": 3, "lang": "hinglish", "text": "Hamare ghar ka paani kala aa raha hai aur badbu bhi hai", "expected": {"smell": "sewage", "colour": "black", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 4, "lang": "hinglish", "text": "Bachche ko dast ho rahe hain, paani ganda aa raha hai 3 din se", "expected": {"smell": "unknown", "colour": "cloudy", "taste": "unknown", "since_days": 3, "sick_count": 1}}
+{"id": 5, "lang": "hinglish", "text": "Paani ka swad khara ho gaya hai pichhle hafte se", "expected": {"smell": "unknown", "colour": "unknown", "taste": "salty", "since_days": 7, "sick_count": null}}
+{"id": 6, "lang": "hinglish", "text": "Do logon ko ulti aur dast hai, nal ka paani matmaila hai", "expected": {"smell": "unknown", "colour": "brown", "taste": "unknown", "since_days": null, "sick_count": 2}}
+{"id": 7, "lang": "hinglish", "text": "Paani mein kachra aa raha hai kal se", "expected": {"smell": "unknown", "colour": "cloudy", "taste": "unknown", "since_days": 1, "sick_count": null}}
+{"id": 8, "lang": "hinglish", "text": "Supply ka paani bhura hai aur bahut badboo maar raha hai", "expected": {"smell": "sewage", "colour": "brown", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 9, "lang": "hinglish", "text": "Ghar mein teen log bimar hain, paani peela hai", "expected": {"smell": "unknown", "colour": "yellow", "taste": "unknown", "since_days": null, "sick_count": 3}}
+{"id": 10, "lang": "hinglish", "text": "Paani mein chlorine jaisi gandh hai", "expected": {"smell": "chemical", "colour": "unknown", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 11, "lang": "hinglish", "text": "Nal se gandla paani aa raha hai 4 din se, koi bimar nahi hai", "expected": {"smell": "unknown", "colour": "cloudy", "taste": "unknown", "since_days": 4, "sick_count": 0}}
+{"id": 12, "lang": "hinglish", "text": "Paani ka rang theek hai par swad kadwa hai", "expected": {"smell": "unknown", "colour": "clear", "taste": "bad", "since_days": null, "sick_count": null}}
+{"id": 13, "lang": "hinglish", "text": "Aaj subah se paani mein gutter ki badboo hai, beti ko bukhar hai", "expected": {"smell": "sewage", "colour": "unknown", "taste": "unknown", "since_days": 0, "sick_count": 1}}
+{"id": 14, "lang": "hinglish", "text": "Paani peela hai", "expected": {"smell": "unknown", "colour": "yellow", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 15, "lang": "hinglish", "text": "Hamare mohalle mein paani kala aur badbudar hai, 5 din ho gaye", "expected": {"smell": "sewage", "colour": "black", "taste": "unknown", "since_days": 5, "sick_count": null}}
+{"id": 16, "lang": "hi", "text": "नल का पानी पीला आ रहा है और बदबू आ रही है", "expected": {"smell": "sewage", "colour": "yellow", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 17, "lang": "hi", "text": "मेरे बच्चे को उल्टी और दस्त हो रहे हैं, पानी से बदबू आती है", "expected": {"smell": "sewage", "colour": "unknown", "taste": "unknown", "since_days": null, "sick_count": 1}}
+{"id": 18, "lang": "hi", "text": "पानी का स्वाद खारा है", "expected": {"smell": "unknown", "colour": "unknown", "taste": "salty", "since_days": null, "sick_count": null}}
+{"id": 19, "lang": "hi", "text": "दो दिन से पानी गंदा आ रहा है", "expected": {"smell": "unknown", "colour": "cloudy", "taste": "unknown", "since_days": 2, "sick_count": null}}
+{"id": 20, "lang": "hi", "text": "पानी मटमैला है, घर में कोई बीमार नहीं है", "expected": {"smell": "unknown", "colour": "brown", "taste": "unknown", "since_days": null, "sick_count": 0}}
+{"id": 21, "lang": "hi", "text": "पानी काला और बदबूदार है, तीन दिन से", "expected": {"smell": "sewage", "colour": "black", "taste": "unknown", "since_days": 3, "sick_count": null}}
+{"id": 22, "lang": "hi", "text": "पानी में कचरा आ रहा है", "expected": {"smell": "unknown", "colour": "cloudy", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 23, "lang": "hi", "text": "घर में दो लोगों को दस्त है", "expected": {"smell": "unknown", "colour": "unknown", "taste": "unknown", "since_days": null, "sick_count": 2}}
+{"id": 24, "lang": "hi", "text": "पानी में दवाई जैसी गंध है", "expected": {"smell": "chemical", "colour": "unknown", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 25, "lang": "hi", "text": "कल से पानी पीला है", "expected": {"smell": "unknown", "colour": "yellow", "taste": "unknown", "since_days": 1, "sick_count": null}}
+{"id": 26, "lang": "en", "text": "The tap water is yellow and smells like sewage since 2 days", "expected": {"smell": "sewage", "colour": "yellow", "taste": "unknown", "since_days": 2, "sick_count": null}}
+{"id": 27, "lang": "en", "text": "Water is brown and my son has diarrhoea", "expected": {"smell": "unknown", "colour": "brown", "taste": "unknown", "since_days": null, "sick_count": 1}}
+{"id": 28, "lang": "en", "text": "Our water tastes salty since last week", "expected": {"smell": "unknown", "colour": "unknown", "taste": "salty", "since_days": 7, "sick_count": null}}
+{"id": 29, "lang": "en", "text": "Dirty water coming from the tap for 3 days, nobody is sick", "expected": {"smell": "unknown", "colour": "cloudy", "taste": "unknown", "since_days": 3, "sick_count": 0}}
+{"id": 30, "lang": "en", "text": "Black water with a terrible sewage smell in our lane", "expected": {"smell": "sewage", "colour": "black", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 31, "lang": "en", "text": "Water smells of chlorine", "expected": {"smell": "chemical", "colour": "unknown", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 32, "lang": "en", "text": "Two kids vomiting after drinking tap water", "expected": {"smell": "unknown", "colour": "unknown", "taste": "unknown", "since_days": null, "sick_count": 2}}
+{"id": 33, "lang": "en", "text": "The water looks cloudy", "expected": {"smell": "unknown", "colour": "cloudy", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 34, "lang": "en", "text": "Bad taste in the water since yesterday", "expected": {"smell": "unknown", "colour": "unknown", "taste": "bad", "since_days": 1, "sick_count": null}}
+{"id": 35, "lang": "en", "text": "Something is wrong with the water", "expected": {"smell": "unknown", "colour": "unknown", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 36, "lang": "hinglish", "text": "nal ka pani pila aa rha h badbo bhi h", "expected": {"smell": "sewage", "colour": "yellow", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 37, "lang": "hinglish", "text": "pani ganda aa rha 2 din se", "expected": {"smell": "unknown", "colour": "cloudy", "taste": "unknown", "since_days": 2, "sick_count": null}}
+{"id": 38, "lang": "hinglish", "text": "bache ko lose motion ho rhe h, pani gnda h", "expected": {"smell": "unknown", "colour": "cloudy", "taste": "unknown", "since_days": null, "sick_count": 1}}
+{"id": 39, "lang": "hinglish", "text": "water mai ajeeb smell aa rhi h", "expected": {"smell": "other", "colour": "unknown", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 40, "lang": "hinglish", "text": "pani kala h or bdboo h", "expected": {"smell": "sewage", "colour": "black", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 41, "lang": "hinglish", "text": "kal se pani khara aa rha h", "expected": {"smell": "unknown", "colour": "unknown", "taste": "salty", "since_days": 1, "sick_count": null}}
+{"id": 42, "lang": "hinglish", "text": "pani mein keede aa rhe h", "expected": {"smell": "unknown", "colour": "unknown", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 43, "lang": "hinglish", "text": "ghr me 2 log bimar h pani se", "expected": {"smell": "unknown", "colour": "unknown", "taste": "unknown", "since_days": null, "sick_count": 2}}
+{"id": 44, "lang": "hinglish", "text": "pani ka colour yellow h aur taste bhi kharab h", "expected": {"smell": "unknown", "colour": "yellow", "taste": "bad", "since_days": null, "sick_count": null}}
+{"id": 45, "lang": "hinglish", "text": "pani bhura bhura sa aa rha h 3 din se", "expected": {"smell": "unknown", "colour": "brown", "taste": "unknown", "since_days": 3, "sick_count": null}}
+{"id": 46, "lang": "hinglish", "text": "Paani thoda ganda hai lekin kisi ko dast nahi hua", "expected": {"smell": "unknown", "colour": "cloudy", "taste": "unknown", "since_days": null, "sick_count": 0}}
+{"id": 47, "lang": "hi", "text": "पानी में बदबू है पर कोई बीमार नहीं है", "expected": {"smell": "sewage", "colour": "unknown", "taste": "unknown", "since_days": null, "sick_count": 0}}
+{"id": 48, "lang": "en", "text": "No smell, but the water is yellow", "expected": {"smell": "none", "colour": "yellow", "taste": "unknown", "since_days": null, "sick_count": null}}
+{"id": 49, "lang": "hinglish", "text": "Bachche ko bukhar nahi hai, bas paani peela hai", "expected": {"smell": "unknown", "colour": "yellow", "taste": "unknown", "since_days": null, "sick_count": 0}}
+{"id": 50, "lang": "hinglish", "text": "Paani saaf dikhta hai par swad namkeen hai", "expected": {"smell": "unknown", "colour": "clear", "taste": "salty", "since_days": null, "sick_count": null}}
