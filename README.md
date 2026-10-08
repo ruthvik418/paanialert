@@ -47,36 +47,45 @@ Deployed with AWS SAM · logs in CloudWatch · region ap-south-1 (Mumbai)
 | `tests/` | Unit tests | A, B |
 | `docs/` | Sources, video script, writeup | C |
 
-All Lambda functions share one code folder (`src/`) and one `src/requirements.txt`, so anything in `src/common/` can be imported everywhere.
+All Lambda functions share one code folder (`src/`), so anything in `src/common/` can be imported everywhere. Libraries are listed in `layer/requirements.txt` and shipped as one Lambda layer.
 
 ## Getting started
 
-Prerequisites: Git, Python 3.12, Node.js 20, AWS CLI v2, AWS SAM CLI, and an AWS profile named `paani` for region `ap-south-1`.
+Prerequisites: Git, Python 3.12, Node.js 20+, AWS CLI v2, AWS SAM CLI, and an AWS profile named `paani` for the team account in `ap-south-1`.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate   # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m venv .venv                 # Windows with several Pythons: py -3.12 -m venv .venv
+source .venv/bin/activate            # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
 pytest
 ```
 
-Secrets live in SSM Parameter Store, never in this repo:
+Secrets live in SSM Parameter Store, never in this repo. `hmac_secret` and `dashboard_key` already exist in the team account. Add the Twilio ones once the sandbox is set up (on Git Bash, prefix with `MSYS_NO_PATHCONV=1` so `/paanialert/...` isn't turned into a file path):
 
 ```bash
 aws ssm put-parameter --profile paani --type SecureString --name /paanialert/twilio_account_sid --value <sid>
 aws ssm put-parameter --profile paani --type SecureString --name /paanialert/twilio_auth_token --value <token>
-aws ssm put-parameter --profile paani --type SecureString --name /paanialert/hmac_secret --value <random hex>
-aws ssm put-parameter --profile paani --type SecureString --name /paanialert/dashboard_key --value <random hex>
 ```
 
-Deploy:
+Build and deploy (the layer step packages the Python libraries for Lambda's Linux, even from Windows):
 
 ```bash
+python scripts/build_layer.py
 sam build
-sam deploy --guided --profile paani   # first time; afterwards just `sam deploy`
+sam deploy
 ```
 
-The stack output `ApiUrl` plus `/health` should return `{"ok": true}`.
+Read the dashboard key with `aws ssm get-parameter --profile paani --name /paanialert/dashboard_key --with-decryption --query Parameter.Value --output text`.
+
+### Live stack
+
+| What | URL |
+|---|---|
+| Health check | `https://ayx7njx4g6.execute-api.ap-south-1.amazonaws.com/health` |
+| Twilio webhook (POST) | `https://ayx7njx4g6.execute-api.ap-south-1.amazonaws.com/whatsapp` |
+| Dashboard API | `https://ayx7njx4g6.execute-api.ap-south-1.amazonaws.com` (`/reports`, `/clusters`, `/public/clusters`) |
+
+If Bedrock is unavailable, the worker falls back to keyword extraction (`src/agent/fallback.py`) so reports, clusters and alerts keep working. To run the model calls through another account, deploy with `--parameter-overrides BedrockRoleArn=<role arn>`.
 
 ## Working together
 

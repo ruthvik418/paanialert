@@ -4,21 +4,227 @@ Description: PaaniAlert - early warning for unsafe drinking water
 
 # Owner: A (Backend & alerts). Need a resource or permission? Ask A or open a PR and tag A.
 # Every function uses CodeUri src/ so src/common/ can be imported everywhere.
+# Libraries come from DependenciesLayer: run `python scripts/build_layer.py` before `sam build`.
+
+Parameters:
+  ModelId:
+    Type: String
+    Default: in.anthropic.claude-haiku-4-5-20251001-v1:0
+    Description: Bedrock inference profile for the agent (India-only routing)
+  FallbackModelId:
+    Type: String
+    Default: apac.amazon.nova-lite-v1:0
+  BedrockRoleArn:
+    Type: String
+    Default: ""
+    Description: Optional role in another account to run Bedrock calls through
+  TwilioWhatsAppFrom:
+    Type: String
+    Default: whatsapp:+14155238886
+    Description: The Twilio sandbox number, or your approved WhatsApp sender
 
 Globals:
   Function:
     Runtime: python3.12
     Architectures: [x86_64]
     CodeUri: src/
+    Layers: [!Ref DependenciesLayer]
     Timeout: 30
     MemorySize: 512
     Environment:
       Variables:
         SSM_PREFIX: /paanialert/
+        REPORTS_TABLE: !Ref ReportsTable
+        CLUSTERS_TABLE: !Ref ClustersTable
+        SUBSCRIBERS_TABLE: !Ref SubscribersTable
+        NOTICES_TABLE: !Ref NoticesTable
+        SESSIONS_TABLE: !Ref SessionsTable
+        MEDIA_BUCKET: !Ref MediaBucket
+        TWILIO_WHATSAPP_FROM: !Ref TwilioWhatsAppFrom
+  HttpApi:
+    CorsConfiguration:
+      AllowOrigins: ["*"]
+      AllowHeaders: [content-type, x-dashboard-key]
+      AllowMethods: [GET, POST, OPTIONS]
 
 Resources:
   PaaniApi:
     Type: AWS::Serverless::HttpApi
+
+  DependenciesLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      Description: strands-agents, twilio, requests (built by scripts/build_layer.py)
+      ContentUri: build/layer/
+      CompatibleRuntimes: [python3.12]
+      RetentionPolicy: Delete
+
+  # Storage
+
+  ReportsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: report_id, AttributeType: S }
+        - { AttributeName: geohash6, AttributeType: S }
+        - { AttributeName: created_at, AttributeType: S }
+      KeySchema:
+        - { AttributeName: report_id, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: geo-time
+          KeySchema:
+            - { AttributeName: geohash6, KeyType: HASH }
+            - { AttributeName: created_at, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+
+  ClustersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: cluster_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: cluster_id, KeyType: HASH }
+
+  SubscribersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: phone_hash, AttributeType: S }
+        - { AttributeName: geohash6, AttributeType: S }
+      KeySchema:
+        - { AttributeName: phone_hash, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: by-cell
+          KeySchema:
+            - { AttributeName: geohash6, KeyType: HASH }
+          Projection: { ProjectionType: ALL }
+
+  NoticesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: geohash6, AttributeType: S }
+      KeySchema:
+        - { AttributeName: geohash6, KeyType: HASH }
+
+  SessionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: phone_hash, AttributeType: S }
+      KeySchema:
+        - { AttributeName: phone_hash, KeyType: HASH }
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: delete-after-7-days
+            Status: Enabled
+            ExpirationInDays: 7
+
+  # Incoming messages: webhook → queue → worker
+
+  IncomingDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+
+  IncomingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 720
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt IncomingDeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  WebhookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: webhook.app.handler
+      Timeout: 10
+      Environment:
+        Variables:
+          INCOMING_QUEUE_URL: !Ref IncomingQueue
+      Policies:
+        - SQSSendMessagePolicy: { QueueName: !GetAtt IncomingQueue.QueueName }
+        - SSMParameterReadPolicy: { ParameterName: paanialert/* }
+      Events:
+        WhatsApp:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: /whatsapp }
+
+  WorkerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: worker.app.handler
+      Timeout: 120
+      MemorySize: 1024
+      Environment:
+        Variables:
+          MODEL_ID: !Ref ModelId
+          FALLBACK_MODEL_ID: !Ref FallbackModelId
+          BEDROCK_ROLE_ARN: !Ref BedrockRoleArn
+          BEDROCK_REGION: !Ref AWS::Region
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref ReportsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ClustersTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref SubscribersTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref SessionsTable }
+        - S3CrudPolicy: { BucketName: !Ref MediaBucket }
+        - SSMParameterReadPolicy: { ParameterName: paanialert/* }
+        - Statement:
+            - Effect: Allow
+              Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+              Resource: "*"
+            - Effect: Allow
+              Action: sts:AssumeRole
+              Resource: "*"
+      Events:
+        Incoming:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt IncomingQueue.Arn
+            BatchSize: 1
+            ScalingConfig: { MaximumConcurrency: 5 }
+
+  # Dashboard API
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: api.app.handler
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref ReportsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ClustersTable }
+        - SSMParameterReadPolicy: { ParameterName: paanialert/* }
+      Events:
+        Reports:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /reports }
+        Clusters:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /clusters }
+        ClusterStatus:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: "/clusters/{id}/status" }
+        PublicClusters:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /public/clusters }
 
   HealthFunction:
     Type: AWS::Serverless::Function
@@ -27,12 +233,16 @@ Resources:
       Events:
         Health:
           Type: HttpApi
-          Properties:
-            ApiId: !Ref PaaniApi
-            Method: GET
-            Path: /health
+          Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /health }
 
 Outputs:
   ApiUrl:
-    Description: Base URL for the webhook and dashboard API
+    Description: Base URL for the dashboard API (set as VITE_API_URL)
     Value: !Sub "https://${PaaniApi}.execute-api.${AWS::Region}.amazonaws.com"
+  WebhookUrl:
+    Description: Paste into Twilio → WhatsApp sandbox settings → When a message comes in (POST)
+    Value: !Sub "https://${PaaniApi}.execute-api.${AWS::Region}.amazonaws.com/whatsapp"
+  MediaBucketName:
+    Value: !Ref MediaBucket
+  DeadLetterQueueUrl:
+    Value: !Ref IncomingDeadLetterQueue

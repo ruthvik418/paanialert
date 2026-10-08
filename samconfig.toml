@@ -1,0 +1,20 @@
+version = 0.1
+
+[default.global.parameters]
+stack_name = "paanialert"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.validate.parameters]
+lint = true
+
+[default.deploy.parameters]
+region = "ap-south-1"
+profile = "paani"
+capabilities = "CAPABILITY_IAM"
+resolve_s3 = true
+s3_prefix = "paanialert"
+confirm_changeset = false
+fail_on_empty_changeset = false

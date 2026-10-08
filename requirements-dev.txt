@@ -1,3 +1,4 @@
--r src/requirements.txt
+-r layer/requirements.txt
 boto3
 pytest
+moto[dynamodb,s3,sqs,ssm]
