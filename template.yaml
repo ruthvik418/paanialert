@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: PaaniAlert - early warning for unsafe drinking water
+
+# Owner: A (Backend & alerts). Need a resource or permission? Ask A or open a PR and tag A.
+# Every function uses CodeUri src/ so src/common/ can be imported everywhere.
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures: [x86_64]
+    CodeUri: src/
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        SSM_PREFIX: /paanialert/
+
+Resources:
+  PaaniApi:
+    Type: AWS::Serverless::HttpApi
+
+  HealthFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: api.health.handler
+      Events:
+        Health:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PaaniApi
+            Method: GET
+            Path: /health
+
+Outputs:
+  ApiUrl:
+    Description: Base URL for the webhook and dashboard API
+    Value: !Sub "https://${PaaniApi}.execute-api.${AWS::Region}.amazonaws.com"

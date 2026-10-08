@@ -1,0 +1,4 @@
+# Runtime dependencies for every Lambda function (boto3 is already in the Lambda runtime).
+twilio
+pygeohash
+# B adds strands-agents here when the agent goes in.
