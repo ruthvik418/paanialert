@@ -87,3 +87,34 @@ def test_pin_adds_area_name(worker, monkeypatch):
     worker.handle({"From": PHONE, "Body": "", "Latitude": "22.7196", "Longitude": "75.8577"})
     report = db.get_report(db.get_session(phone_hash(PHONE))["last_report_id"])
     assert report.area == "Rajwada, Indore"
+
+
+def test_offer_alerts_after_pin_and_subscribe(worker):
+    from common import db
+    from common.geo import geohash6
+    from common.hashing import phone_hash
+
+    worker.handle({"From": PHONE, "Body": "water is yellow and smells bad"})
+    answer = worker.handle({"From": PHONE, "Body": "", "Latitude": "22.7196", "Longitude": "75.8577"})
+    assert "🔔" in answer                                     # offered alerts once located
+    assert "SUBSCRIBED" not in answer
+    answer = worker.handle({"From": PHONE, "Body": "haan"})
+    sub = db.get_subscriber(phone_hash(PHONE))
+    assert "✅" in answer and sub["geohash6"] == geohash6(22.7196, 75.8577) and sub["phone"] == PHONE
+
+    # A second report doesn't ask again.
+    worker.handle({"From": PHONE, "Body": "still dirty water"})
+    answer = worker.handle({"From": PHONE, "Body": "", "Latitude": "22.7196", "Longitude": "75.8577"})
+    assert "🔔" not in answer
+
+
+def test_no_means_no_and_yes_later_is_just_a_message(worker):
+    from common import db
+    from common.hashing import phone_hash
+
+    worker.handle({"From": PHONE, "Body": "", "Latitude": "28.6139", "Longitude": "77.2090"})
+    answer = worker.handle({"From": PHONE, "Body": "paani kala hai"})       # pin first, so offer comes now
+    assert "🔔" in answer
+    assert "ठीक" in worker.handle({"From": PHONE, "Body": "nahi"}) or "Okay" in worker.sent[-1][1]
+    worker.handle({"From": PHONE, "Body": "yes"})                           # not after a question: ignored
+    assert db.get_subscriber(phone_hash(PHONE)) is None

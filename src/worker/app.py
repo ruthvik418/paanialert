@@ -5,6 +5,9 @@ people get a menu (1 English, 2 हिंदी, 3 Hinglish) after their first r
 "भाषा", "bhasha" or "language" shows it again. The choice is saved per phone
 and also used for their alerts.
 
+Alerts: once a report has a location, the bot offers alerts for that area;
+YES / haan adds the person to Subscribers, NO stops it asking, STOP removes them.
+
 Location pins are handled here, not by the model: a pin attaches to the
 person's last report if it has no location yet, otherwise it is kept for their
 next report.
@@ -35,6 +38,8 @@ LANGUAGE_WORDS = {
     "hinglish": "hinglish", "roman hindi": "hinglish",
 }
 MENU_NUMBERS = {"1": "en", "2": "hi", "3": "hinglish", "१": "en", "२": "hi", "३": "hinglish"}
+YES_WORDS = {"yes", "y", "yeah", "ok", "okay", "haan", "haa", "ha", "han", "hn", "ji", "haan ji", "हाँ", "हां", "जी"}
+NO_WORDS = {"no", "n", "nahi", "nahin", "nhi", "na", "नहीं", "ना"}
 
 
 def handler(event, context):
@@ -55,8 +60,17 @@ def handle(msg: dict) -> str:
     command = text.lower().strip(" .!")
     choice = LANGUAGE_WORDS.get(command) or (MENU_NUMBERS.get(command) if state.get("awaiting_language") else None)
     show_menu = False
+    # Like the language menu, YES/NO only counts as the answer right after we asked.
+    subscribe_cell = state.pop("awaiting_subscribe", None)
 
-    if choice:
+    if subscribe_cell and command in YES_WORDS:
+        db.put_subscriber(ph, sender, subscribe_cell, lang)
+        log.info("subscribed one phone in cell %s", subscribe_cell)
+        answer = prompts.SUBSCRIBED[lang]
+    elif subscribe_cell and command in NO_WORDS:
+        state["subscribe_declined"] = True
+        answer = prompts.NOT_SUBSCRIBED[lang]
+    elif choice:
         db.set_language(ph, choice)
         db.update_subscriber_lang(ph, choice)
         lang = choice
@@ -96,9 +110,17 @@ def _handle_pin(state: dict, lat: float, lon: float, lang: str) -> str:
         report.area = area_name(lat, lon)
         db.put_report(report)
         log.info("attached pin to report %s", report.report_id)
-        return prompts.LOCATION_SAVED[lang] + "\n\n" + prompts.ADVICE[lang]
+        return prompts.LOCATION_SAVED[lang] + "\n\n" + prompts.ADVICE[lang] + _offer_alerts(state, report, lang)
     state["pending_location"] = [lat, lon]
     return prompts.ASK_COMPLAINT[lang]
+
+
+def _offer_alerts(state: dict, report, lang: str) -> str:
+    """Once a report has a location, offer alerts for that area, unless they already said yes or no."""
+    if report.geohash6 is None or state.get("subscribe_declined") or db.get_subscriber(report.phone_hash):
+        return ""
+    state["awaiting_subscribe"] = report.geohash6
+    return "\n\n" + prompts.ASK_SUBSCRIBE[lang]
 
 
 def _handle_message(msg: dict, text: str, ph: str, state: dict, turns: list, lang: str) -> str:
@@ -125,6 +147,8 @@ def _handle_message(msg: dict, text: str, ph: str, state: dict, turns: list, lan
         state.pop("pending_location", None)
         if ctx.saved.lat is None and "📍" not in answer:
             answer += "\n\n" + prompts.ASK_LOCATION[lang]
+        else:
+            answer += _offer_alerts(state, ctx.saved, lang)
     return answer
 
 

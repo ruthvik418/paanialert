@@ -118,6 +118,10 @@ def put_subscriber(phone_hash: str, phone: str, geohash6: str, lang: str) -> Non
     )
 
 
+def get_subscriber(phone_hash: str) -> dict[str, Any] | None:
+    return _table("subscribers").get_item(Key={"phone_hash": phone_hash}).get("Item")
+
+
 def delete_subscriber(phone_hash: str) -> None:
     _table("subscribers").delete_item(Key={"phone_hash": phone_hash})
 

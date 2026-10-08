@@ -100,6 +100,24 @@ REPORT_SAVED = {
     "hinglish": "Shukriya, aapki report save ho gayi.",
 }
 
+ASK_SUBSCRIBE = {
+    "en": "🔔 Want a warning if more bad water is reported near you? Reply YES. (Reply STOP any time to stop.)",
+    "hi": "🔔 आपके पास और खराब पानी की शिकायत आने पर चेतावनी चाहिए? YES या हाँ लिखें। (बंद करने के लिए कभी भी STOP लिखें।)",
+    "hinglish": "🔔 Aapke paas aur kharab paani ki shikayat aane par warning chahiye? YES ya haan likhein. (Band karne ke liye kabhi bhi STOP likhein.)",
+}
+
+SUBSCRIBED = {
+    "en": "✅ Done. We'll message you if bad water is reported near you. Reply STOP any time.",
+    "hi": "✅ हो गया। आपके पास खराब पानी की शिकायत आने पर हम आपको मैसेज करेंगे। बंद करने के लिए कभी भी STOP लिखें।",
+    "hinglish": "✅ Ho gaya. Aapke paas kharab paani ki shikayat aane par hum aapko message karenge. Band karne ke liye kabhi bhi STOP likhein.",
+}
+
+NOT_SUBSCRIBED = {
+    "en": "Okay, no alerts. You can still report bad water any time.",
+    "hi": "ठीक है, कोई चेतावनी नहीं भेजेंगे। आप कभी भी खराब पानी की शिकायत कर सकते हैं।",
+    "hinglish": "Theek hai, koi alert nahi bhejenge. Aap kabhi bhi kharab paani report kar sakte hain.",
+}
+
 VOICE_PENDING = {
     "en": "Got your voice note. Voice is coming soon; for now please type a few words: smell, colour, anyone sick?",
     "hi": "आपका वॉइस नोट मिला। अभी कृपया कुछ शब्द लिखकर भेजें: बदबू, रंग, कोई बीमार?",
