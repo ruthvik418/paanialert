@@ -22,6 +22,13 @@ Parameters:
     Type: String
     Default: whatsapp:+14155238886
     Description: The Twilio sandbox number, or your approved WhatsApp sender
+  EscalateAfterMin:
+    Type: Number
+    Default: 1440
+    Description: Minutes an alert can stay open before the health officer is told (10 for demos)
+  DashboardUrl:
+    Type: String
+    Default: https://main.dy95ki8l9ef8x.amplifyapp.com
 
 Globals:
   Function:
@@ -202,6 +209,43 @@ Resources:
             BatchSize: 1
             ScalingConfig: { MaximumConcurrency: 5 }
 
+  # Clusters and alerts
+
+  WardEngineerTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: PaaniAlert ward engineer
+
+  HealthOfficerTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: PaaniAlert health officer
+
+  ClusterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: cluster.app.handler
+      Timeout: 120
+      Environment:
+        Variables:
+          WARD_TOPIC_ARN: !Ref WardEngineerTopic
+          HEALTH_TOPIC_ARN: !Ref HealthOfficerTopic
+          ESCALATE_AFTER_MIN: !Ref EscalateAfterMin
+          DASHBOARD_URL: !Ref DashboardUrl
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref ReportsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ClustersTable }
+        - DynamoDBReadPolicy: { TableName: !Ref SubscribersTable }
+        - DynamoDBReadPolicy: { TableName: !Ref NoticesTable }
+        - SNSPublishMessagePolicy: { TopicName: !GetAtt WardEngineerTopic.TopicName }
+        - SNSPublishMessagePolicy: { TopicName: !GetAtt HealthOfficerTopic.TopicName }
+        - SSMParameterReadPolicy: { ParameterName: paanialert/* }
+      Events:
+        Every15Minutes:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)
+
   # Dashboard API
 
   ApiFunction:
@@ -246,3 +290,11 @@ Outputs:
     Value: !Ref MediaBucket
   DeadLetterQueueUrl:
     Value: !Ref IncomingDeadLetterQueue
+  WardEngineerTopicArn:
+    Description: Subscribe the ward engineer's email here (SNS console → Create subscription)
+    Value: !Ref WardEngineerTopic
+  HealthOfficerTopicArn:
+    Value: !Ref HealthOfficerTopic
+  ClusterFunctionName:
+    Description: Invoke this to run the cluster check now
+    Value: !Ref ClusterFunction

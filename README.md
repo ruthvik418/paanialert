@@ -67,12 +67,11 @@ aws ssm put-parameter --profile paani --type SecureString --name /paanialert/twi
 aws ssm put-parameter --profile paani --type SecureString --name /paanialert/twilio_auth_token --value <token>
 ```
 
-Build and deploy (the layer step packages the Python libraries for Lambda's Linux, even from Windows):
+Build and deploy in one step (it packages the Python libraries for Lambda's Linux even from Windows, and builds outside the repo so OneDrive can't lock files):
 
 ```bash
-python scripts/build_layer.py
-sam build
-sam deploy
+py -3.12 scripts/deploy_backend.py          # add --layer after changing layer/requirements.txt
+python scripts/deploy_dashboard.py          # dashboard → Amplify
 ```
 
 Read the dashboard key with `aws ssm get-parameter --profile paani --name /paanialert/dashboard_key --with-decryption --query Parameter.Value --output text`.
@@ -84,6 +83,17 @@ Read the dashboard key with `aws ssm get-parameter --profile paani --name /paani
 | Health check | `https://ayx7njx4g6.execute-api.ap-south-1.amazonaws.com/health` |
 | Twilio webhook (POST) | `https://ayx7njx4g6.execute-api.ap-south-1.amazonaws.com/whatsapp` |
 | Dashboard API | `https://ayx7njx4g6.execute-api.ap-south-1.amazonaws.com` (`/reports`, `/clusters`, `/public/clusters`) |
+| Officials dashboard | `https://main.dy95ki8l9ef8x.amplifyapp.com` (needs the dashboard key) |
+| Public cluster page | `https://main.dy95ki8l9ef8x.amplifyapp.com/public` |
+
+### Try it without five phones
+
+```bash
+python scripts/fake_reports.py --near 22.7196,75.8577 --phones 5 --sick 2 --check   # makes an Alert
+python scripts/fake_reports.py --clean                                              # removes all fake data
+```
+
+Fake reports use made-up phone hashes, so nobody is messaged. To get the official emails, subscribe an address to the `WardEngineerTopicArn` and `HealthOfficerTopicArn` stack outputs (SNS console → Subscriptions → Create subscription → Email) and confirm it. For a demo of escalation, deploy with `--parameter-overrides EscalateAfterMin=10`.
 
 If Bedrock is unavailable, the worker falls back to keyword extraction (`src/agent/fallback.py`) so reports, clusters and alerts keep working. To run the model calls through another account, deploy with `--parameter-overrides BedrockRoleArn=<role arn>`.
 

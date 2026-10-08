@@ -100,6 +100,16 @@ def update_cluster_status(cluster_id: str, status: str, at_iso: str) -> None:
     )
 
 
+# Maintenance notices: {"geohash6", "text", "valid_until"}
+
+def all_notices() -> list[dict[str, Any]]:
+    return _scan_all(_table("notices"))
+
+
+def put_notice(geohash6: str, text: str, valid_until_iso: str) -> None:
+    _table("notices").put_item(Item={"geohash6": geohash6, "text": text, "valid_until": valid_until_iso})
+
+
 # Subscribers (the one table that keeps a real number, because alerts need it)
 
 def put_subscriber(phone_hash: str, phone: str, geohash6: str, lang: str) -> None:
