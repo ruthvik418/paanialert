@@ -7,13 +7,14 @@ Description: PaaniAlert - early warning for unsafe drinking water
 # Libraries come from DependenciesLayer: run `python scripts/build_layer.py` before `sam build`.
 
 Parameters:
-  ModelId:
+  ModelIds:
     Type: String
-    Default: in.anthropic.claude-haiku-4-5-20251001-v1:0
-    Description: Bedrock inference profile for the agent (India-only routing)
-  FallbackModelId:
+    Default: us.meta.llama4-maverick-17b-instruct-v1:0,deepseek.v3-v1:0
+    Description: Bedrock models for the agent, tried in order
+  BedrockRegion:
     Type: String
-    Default: apac.amazon.nova-lite-v1:0
+    Default: us-west-2
+    Description: Region for the model calls (where the account behind BedrockRoleArn has the models)
   BedrockRoleArn:
     Type: String
     Default: ""
@@ -183,10 +184,9 @@ Resources:
       MemorySize: 1024
       Environment:
         Variables:
-          MODEL_ID: !Ref ModelId
-          FALLBACK_MODEL_ID: !Ref FallbackModelId
+          MODEL_IDS: !Ref ModelIds
           BEDROCK_ROLE_ARN: !Ref BedrockRoleArn
-          BEDROCK_REGION: !Ref AWS::Region
+          BEDROCK_REGION: !Ref BedrockRegion
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref ReportsTable }
         - DynamoDBCrudPolicy: { TableName: !Ref ClustersTable }

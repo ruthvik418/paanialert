@@ -95,7 +95,7 @@ python scripts/fake_reports.py --clean                                          
 
 Fake reports use made-up phone hashes, so nobody is messaged. To get the official emails, subscribe an address to the `WardEngineerTopicArn` and `HealthOfficerTopicArn` stack outputs (SNS console → Subscriptions → Create subscription → Email) and confirm it. For a demo of escalation, deploy with `--parameter-overrides EscalateAfterMin=10`.
 
-If Bedrock is unavailable, the worker falls back to keyword extraction (`src/agent/fallback.py`) so reports, clusters and alerts keep working. To run the model calls through another account, deploy with `--parameter-overrides BedrockRoleArn=<role arn>`.
+The agent uses Llama 4 Maverick, with DeepSeek V3.1 as backup (`ModelIds` parameter). If no model answers, the worker falls back to keyword extraction (`src/agent/fallback.py`) so reports, clusters and alerts keep working. While Bedrock is blocked on the team account, model calls can run through a friend's account with a cross-account role: see `docs/bedrock-access.md`.
 
 ## Working together
 

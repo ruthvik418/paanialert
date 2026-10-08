@@ -1,11 +1,12 @@
 """Runs the Strands agent on Amazon Bedrock for one incoming message. Owner: B.
 
-Model order: MODEL_ID, then FALLBACK_MODEL_ID. If neither answers, the caller
-falls back to keyword extraction (agent/fallback.py).
+Models are tried in MODEL_IDS order (comma-separated). If none answers, the
+caller falls back to keyword extraction (agent/fallback.py).
 
 If Bedrock is blocked on our account, set BEDROCK_ROLE_ARN to a role in a
-teammate's account that allows bedrock:InvokeModel and trusts our account.
-Only the model calls go there; everything else stays in our account.
+teammate's account that allows bedrock:InvokeModel and trusts our account
+(see docs/bedrock-access.md). Only the model calls go there; everything else
+stays in our account.
 """
 from __future__ import annotations
 
@@ -23,10 +24,15 @@ from agent.reports import TurnContext, save_extracted
 
 log = logging.getLogger(__name__)
 
-MODEL_ID = os.environ.get("MODEL_ID", "in.anthropic.claude-haiku-4-5-20251001-v1:0")
-FALLBACK_MODEL_ID = os.environ.get("FALLBACK_MODEL_ID", "apac.amazon.nova-lite-v1:0")
-BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "ap-south-1")
+# Llama 4 Maverick: officially supports Hindi, reads images (water photos, TDS meters), fast.
+# DeepSeek V3.1: stronger text reasoning, no images. Override with the ModelIds stack parameter.
+DEFAULT_MODEL_IDS = "us.meta.llama4-maverick-17b-instruct-v1:0,deepseek.v3-v1:0"
+MODEL_IDS = [m.strip() for m in os.environ.get("MODEL_IDS", DEFAULT_MODEL_IDS).split(",") if m.strip()]
+MODEL_ID = MODEL_IDS[0]
+BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-west-2")
 BEDROCK_ROLE_ARN = os.environ.get("BEDROCK_ROLE_ARN", "")
+# Open models on Bedrock handle tool calls more reliably without streaming.
+STREAMING = os.environ.get("BEDROCK_STREAMING", "false").lower() == "true"
 
 _UNSAFE_WORD = re.compile(r"\b(safe|surakshit)\b|सुरक्षित", re.I)
 _session_cache: dict[str, object] = {}
@@ -56,7 +62,8 @@ def _boto_session() -> boto3.Session:
 
 
 def model(model_id: str) -> BedrockModel:
-    return BedrockModel(boto_session=_boto_session(), model_id=model_id, temperature=0.2, max_tokens=600)
+    return BedrockModel(boto_session=_boto_session(), model_id=model_id, temperature=0.2,
+                        max_tokens=600, streaming=STREAMING)
 
 
 def _tools(ctx: TurnContext):
@@ -132,7 +139,7 @@ def reply(text: str, ctx: TurnContext, turns: list[dict[str, str]]) -> str:
         notes.append("[the person attached a photo]")
     prompt = (text + " " + " ".join(notes)).strip()
 
-    for model_id in (MODEL_ID, FALLBACK_MODEL_ID):
+    for model_id in MODEL_IDS:
         try:
             agent = Agent(
                 model=model(model_id),
