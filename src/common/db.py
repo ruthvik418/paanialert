@@ -122,6 +122,31 @@ def delete_subscriber(phone_hash: str) -> None:
     _table("subscribers").delete_item(Key={"phone_hash": phone_hash})
 
 
+def update_subscriber_lang(phone_hash: str, lang: str) -> None:
+    """Keep alerts in the language the person chose, if they're subscribed."""
+    try:
+        _table("subscribers").update_item(
+            Key={"phone_hash": phone_hash},
+            UpdateExpression="SET lang = :l",
+            ConditionExpression="attribute_exists(phone_hash)",
+            ExpressionAttributeValues={":l": lang},
+        )
+    except Exception as exc:
+        if "ConditionalCheckFailed" not in str(exc):
+            raise
+
+
+# Language preference per phone. Kept apart from Sessions, which expire after 24 hours.
+
+def get_language(phone_hash: str) -> str | None:
+    item = _table("preferences").get_item(Key={"phone_hash": phone_hash}).get("Item")
+    return item.get("lang") if item else None
+
+
+def set_language(phone_hash: str, lang: str) -> None:
+    _table("preferences").put_item(Item={"phone_hash": phone_hash, "lang": lang})
+
+
 def subscribers_in_cells(cells: list[str]) -> list[dict[str, Any]]:
     tbl = _table("subscribers")
     out: list[dict[str, Any]] = []

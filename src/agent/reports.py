@@ -23,7 +23,8 @@ class TurnContext:
     """What the worker knows about the person and this message."""
 
     phone_hash: str
-    lang: str
+    lang: str                       # language to reply in (the person's choice, Hindi by default)
+    msg_lang: str | None = None     # language the message was written in, stored on the report
     lat: float | None = None
     lon: float | None = None
     photo_key: str | None = None
@@ -56,7 +57,7 @@ def save_extracted(ctx: TurnContext, fields: dict[str, Any]) -> Report:
         geohash6=geohash6(ctx.lat, ctx.lon) if ctx.lat is not None and ctx.lon is not None else None,
         photo_key=ctx.photo_key,
         audio_key=ctx.audio_key,
-        lang=ctx.lang,
+        lang=ctx.msg_lang or ctx.lang,
         **clean,
     )
     db.put_report(report)

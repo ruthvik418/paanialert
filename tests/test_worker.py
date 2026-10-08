@@ -25,7 +25,8 @@ def test_complaint_then_pin_attaches_location(worker):
     from common.hashing import phone_hash
 
     answer = worker.handle({"From": PHONE, "Body": "Nal ka paani peela aa raha hai, badboo hai, 2 din se"})
-    assert "save" in answer.lower() and "📍" in answer   # saved, and asked for a pin
+    assert "दर्ज" in answer and "📍" in answer          # saved in Hindi, asked for a pin
+    assert "भाषा चुनें" in answer                       # first contact shows the language menu
 
     state = db.get_session(phone_hash(PHONE))
     report = db.get_report(state["last_report_id"])
@@ -54,3 +55,24 @@ def test_greeting_saves_nothing(worker):
     answer = worker.handle({"From": PHONE, "Body": "hello"})
     assert "PaaniAlert" in answer
     assert "last_report_id" not in db.get_session(phone_hash(PHONE))
+
+
+def test_language_choice_sticks(worker):
+    worker.handle({"From": PHONE, "Body": "hello"})          # first contact: Hindi + menu
+    assert "बताइए" in worker.sent[-1][1] and "1️⃣" in worker.sent[-1][1]
+    worker.handle({"From": PHONE, "Body": "2"})               # picks English
+    assert "English" in worker.sent[-1][1]
+    answer = worker.handle({"From": PHONE, "Body": "water is brown"})
+    assert "saved" in answer and "1️⃣" not in answer
+    worker.handle({"From": PHONE, "Body": "bhasha"})          # menu again
+    worker.handle({"From": PHONE, "Body": "3"})               # Hinglish
+    assert "Hinglish" in worker.sent[-1][1]
+
+
+def test_number_without_menu_is_not_a_language(worker):
+    worker.handle({"From": PHONE, "Body": "hello"})
+    worker.handle({"From": PHONE, "Body": "paani peela hai"})  # clears the menu
+    worker.handle({"From": PHONE, "Body": "2"})               # answer, not a language pick
+    from common import db
+    from common.hashing import phone_hash
+    assert db.get_language(phone_hash(PHONE)) is None

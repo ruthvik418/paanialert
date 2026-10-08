@@ -1,5 +1,10 @@
 """Handles one queued WhatsApp message: understand it, save it, reply. Owner: B.
 
+Language: replies are in Hindi until the person picks another language. New
+people get a menu (1 हिंदी, 2 English, 3 Hinglish) after their first reply;
+"भाषा", "bhasha" or "language" shows it again. The choice is saved per phone
+and also used for their alerts.
+
 Location pins are handled here, not by the model: a pin attaches to the
 person's last report if it has no location yet, otherwise it is kept for their
 next report.
@@ -22,6 +27,13 @@ log = logging.getLogger()
 log.setLevel(logging.INFO)
 
 STOP_WORDS = {"stop", "unsubscribe", "band karo", "बंद करो"}
+MENU_WORDS = {"language", "lang", "bhasha", "bhaasha", "भाषा", "भाषा बदलें", "change language", "bhasha badlo"}
+LANGUAGE_WORDS = {
+    "hindi": "hi", "हिंदी": "hi", "हिन्दी": "hi",
+    "english": "en", "angrezi": "en", "अंग्रेज़ी": "en", "अंग्रेजी": "en",
+    "hinglish": "hinglish", "roman hindi": "hinglish",
+}
+MENU_NUMBERS = {"1": "hi", "2": "en", "3": "hinglish", "१": "hi", "२": "en", "३": "hinglish"}
 
 
 def handler(event, context):
@@ -35,10 +47,22 @@ def handle(msg: dict) -> str:
     ph = phone_hash(sender)
     state = db.get_session(ph)
     turns = state.get("turns", [])
-    lang = fallback.detect_lang(text) if text else state.get("lang", "hinglish")
+    chosen = db.get_language(ph)
+    lang = chosen or prompts.DEFAULT_LANG
+    first_contact = chosen is None and not turns
     lat, lon = _float(msg.get("Latitude")), _float(msg.get("Longitude"))
+    command = text.lower().strip(" .!")
+    choice = LANGUAGE_WORDS.get(command) or (MENU_NUMBERS.get(command) if state.get("awaiting_language") else None)
+    show_menu = False
 
-    if text.lower() in STOP_WORDS:
+    if choice:
+        db.set_language(ph, choice)
+        db.update_subscriber_lang(ph, choice)
+        lang = choice
+        answer = prompts.LANGUAGE_SET[lang]
+    elif command in MENU_WORDS:
+        answer, show_menu = prompts.LANGUAGE_MENU, True
+    elif command in STOP_WORDS:
         db.delete_subscriber(ph)
         answer = prompts.UNSUBSCRIBED[lang]
     elif lat is not None and lon is not None:
@@ -46,11 +70,20 @@ def handle(msg: dict) -> str:
     else:
         answer = _handle_message(msg, text, ph, state, turns, lang)
 
+    if first_contact and not choice and not show_menu:
+        answer += "\n\n" + prompts.LANGUAGE_MENU
+        show_menu = True
+    # Only a reply right after the menu counts as a choice, so "2" can still mean "2 people sick".
+    if show_menu:
+        state["awaiting_language"] = True
+    else:
+        state.pop("awaiting_language", None)
+
     send_whatsapp(sender, answer)
     if text:
         turns.append({"role": "user", "text": text})
     turns.append({"role": "assistant", "text": answer})
-    state.update(turns=turns, lang=lang)
+    state.update(turns=turns)
     db.put_session(ph, state)
     return answer
 
@@ -70,7 +103,7 @@ def _handle_message(msg: dict, text: str, ph: str, state: dict, turns: list, lan
     pending = state.get("pending_location")
     photo_key, audio_key = save_media(msg, msg.get("MessageSid") or "media")
     ctx = TurnContext(
-        phone_hash=ph, lang=lang,
+        phone_hash=ph, lang=lang, msg_lang=fallback.detect_lang(text) if text else None,
         lat=pending[0] if pending else None, lon=pending[1] if pending else None,
         photo_key=photo_key, audio_key=audio_key,
     )
@@ -97,15 +130,9 @@ def _keyword_reply(text: str, ctx: TurnContext) -> str:
     """Used only when no Bedrock model answers."""
     fields = fallback.extract(text)
     if not fallback.is_complaint(fields):
-        return {
-            "en": "Hi! I'm PaaniAlert. Tell me if your tap water smells, looks dirty or makes people sick, and I'll warn your neighbours early.",
-            "hi": "नमस्ते! मैं PaaniAlert हूँ। अगर नल के पानी में बदबू है, गंदा है या लोग बीमार हो रहे हैं, तो बताइए।",
-            "hinglish": "Namaste! Main PaaniAlert hoon. Agar nal ke paani mein badboo hai, ganda hai ya log bimar ho rahe hain, to batayiye.",
-        }[ctx.lang]
+        return prompts.WELCOME[ctx.lang]
     save_extracted(ctx, fields)
-    thanks = {"en": "Thank you, your report is saved.", "hi": "धन्यवाद, आपकी शिकायत दर्ज हो गई।",
-              "hinglish": "Shukriya, aapki report save ho gayi."}[ctx.lang]
-    return thanks + "\n\n" + prompts.ADVICE[ctx.lang]
+    return prompts.REPORT_SAVED[ctx.lang] + "\n\n" + prompts.ADVICE[ctx.lang]
 
 
 def _float(value) -> float | None:

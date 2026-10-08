@@ -17,6 +17,7 @@ os.environ.update({
     "SUBSCRIBERS_TABLE": "Subscribers",
     "NOTICES_TABLE": "Notices",
     "SESSIONS_TABLE": "Sessions",
+    "PREFERENCES_TABLE": "Preferences",
     "MEDIA_BUCKET": "media-test",
 })
 os.environ.pop("AWS_PROFILE", None)
@@ -64,6 +65,7 @@ def aws():
         }])
         _table(ddb, "Notices", "geohash6")
         _table(ddb, "Sessions", "phone_hash")
+        _table(ddb, "Preferences", "phone_hash")
 
         ssm = boto3.client("ssm", region_name="ap-south-1")
         for name, value in SECRETS.items():

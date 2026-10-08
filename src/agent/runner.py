@@ -19,7 +19,7 @@ import boto3
 from strands import Agent, tool
 from strands.models import BedrockModel
 
-from agent.prompts import ADVICE, SYSTEM_PROMPT
+from agent.prompts import ADVICE, LANGUAGES, SYSTEM_PROMPT
 from agent.reports import TurnContext, save_extracted
 
 log = logging.getLogger(__name__)
@@ -137,6 +137,7 @@ def reply(text: str, ctx: TurnContext, turns: list[dict[str, str]]) -> str:
         notes.append("[the location is already known]")
     if ctx.photo_key:
         notes.append("[the person attached a photo]")
+    notes.append(f"[Reply in {LANGUAGES.get(ctx.lang, LANGUAGES['hi'])}]")
     prompt = (text + " " + " ".join(notes)).strip()
 
     for model_id in MODEL_IDS:

@@ -47,6 +47,7 @@ Globals:
         SUBSCRIBERS_TABLE: !Ref SubscribersTable
         NOTICES_TABLE: !Ref NoticesTable
         SESSIONS_TABLE: !Ref SessionsTable
+        PREFERENCES_TABLE: !Ref PreferencesTable
         MEDIA_BUCKET: !Ref MediaBucket
         TWILIO_WHATSAPP_FROM: !Ref TwilioWhatsAppFrom
   HttpApi:
@@ -131,6 +132,15 @@ Resources:
         AttributeName: expires_at
         Enabled: true
 
+  PreferencesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: phone_hash, AttributeType: S }
+      KeySchema:
+        - { AttributeName: phone_hash, KeyType: HASH }
+
   MediaBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -192,6 +202,7 @@ Resources:
         - DynamoDBCrudPolicy: { TableName: !Ref ClustersTable }
         - DynamoDBCrudPolicy: { TableName: !Ref SubscribersTable }
         - DynamoDBCrudPolicy: { TableName: !Ref SessionsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref PreferencesTable }
         - S3CrudPolicy: { BucketName: !Ref MediaBucket }
         - SSMParameterReadPolicy: { ParameterName: paanialert/* }
         - Statement:

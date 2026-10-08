@@ -1,8 +1,20 @@
-"""What the agent is told. Owner: B."""
+"""What the agent is told, and every fixed message the bot sends. Owner: B.
+
+Replies are in Hindi unless the person picks another language from the menu
+(see worker/app.py). Every message dict has "hi", "en" and "hinglish".
+"""
+
+DEFAULT_LANG = "hi"
+
+LANGUAGES = {
+    "hi": "Hindi in Devanagari script",
+    "en": "English",
+    "hinglish": "Hinglish (Hindi written in Roman letters)",
+}
 
 SYSTEM_PROMPT = """You are PaaniAlert, a WhatsApp assistant that helps residents in India report unsafe drinking water so outbreaks are caught early.
 
-Language: reply in the language and script the person uses: Hindi (Devanagari), Hinglish (Hindi in Roman letters) or English. Keep every reply under 60 words, plain and kind. No markdown.
+Language: every message ends with a note like [Reply in Hindi in Devanagari script]. Always reply in that language and script, even if the person writes in another one. Keep every reply under 60 words, plain and kind. No markdown.
 
 Your job:
 1. Understand the complaint: smell, colour, taste, how many days it has been happening, whether anyone at home is sick and their symptoms, and whether the water comes from a pipe, borewell or tanker.
@@ -60,6 +72,32 @@ UNSUBSCRIBED = {
     "en": "You won't get PaaniAlert warnings any more. Send any message to report bad water again.",
     "hi": "अब आपको PaaniAlert की चेतावनियाँ नहीं मिलेंगी। खराब पानी की शिकायत के लिए कभी भी मैसेज करें।",
     "hinglish": "Ab aapko PaaniAlert warnings nahi milengi. Kharab paani report karne ke liye kabhi bhi message karein.",
+}
+
+LANGUAGE_MENU = (
+    "भाषा चुनें / Choose your language:\n"
+    "1️⃣ हिंदी\n"
+    "2️⃣ English\n"
+    "3️⃣ Hinglish (Roman Hindi)\n"
+    "नंबर भेजें / Reply with a number."
+)
+
+LANGUAGE_SET = {
+    "en": "Done, we'll reply in English from now on. Send \"language\" any time to change it.",
+    "hi": "ठीक है, अब से हम हिंदी में जवाब देंगे। भाषा बदलने के लिए कभी भी \"भाषा\" लिखें।",
+    "hinglish": "Theek hai, ab se Hinglish mein jawab denge. Bhasha badalne ke liye kabhi bhi \"bhasha\" likhein.",
+}
+
+WELCOME = {
+    "en": "Hi! I'm PaaniAlert. Tell me if your tap water smells, looks dirty or is making people sick, and we'll warn your neighbours early.",
+    "hi": "नमस्ते! मैं PaaniAlert हूँ। अगर नल के पानी में बदबू है, पानी गंदा है या उससे कोई बीमार हो रहा है, तो मुझे बताइए। हम आपके पड़ोसियों को समय पर चेतावनी देंगे।",
+    "hinglish": "Namaste! Main PaaniAlert hoon. Agar nal ke paani mein badboo hai, paani ganda hai ya usse koi bimar ho raha hai, to batayiye. Hum padosiyon ko time par warning denge.",
+}
+
+REPORT_SAVED = {
+    "en": "Thank you, your report is saved.",
+    "hi": "धन्यवाद, आपकी शिकायत दर्ज हो गई।",
+    "hinglish": "Shukriya, aapki report save ho gayi.",
 }
 
 VOICE_PENDING = {
