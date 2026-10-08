@@ -37,9 +37,11 @@ function toGeoJSON(items, props) {
   };
 }
 
-export default function MapView({ reports = [], clusters = [], place = "all", label = "Map", onSelectCluster, onSelectReport }) {
+// `focus` = {key, lon, lat, title, lines}: fly there and open a card. A new key re-triggers it.
+export default function MapView({ reports = [], clusters = [], place = "all", label = "Map", focus, onSelectCluster, onSelectReport }) {
   const box = useRef(null);
   const map = useRef(null);
+  const popup = useRef(null);
   const ready = useRef(false);
   const fitted = useRef(false);
   const latest = useRef({ reports, clusters, place });
@@ -104,6 +106,28 @@ export default function MapView({ reports = [], clusters = [], place = "all", la
     if (place === "all") fitAll(map.current, latest.current);
     else map.current.flyTo({ center: PLACES[place].center, zoom: PLACES[place].zoom });
   }, [place]);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!focus || !m) return;
+    const show = () => {
+      m.flyTo({ center: [focus.lon, focus.lat], zoom: Math.max(m.getZoom(), 14), duration: 1200 });
+      popup.current?.remove();
+      const card = document.createElement("div");
+      card.className = "map-popup";
+      const title = document.createElement("strong");
+      title.textContent = focus.title;
+      card.appendChild(title);
+      for (const line of focus.lines.filter(Boolean)) {
+        const row = document.createElement("div");
+        row.textContent = line; // user-sent text: never inserted as HTML
+        card.appendChild(row);
+      }
+      popup.current = new maplibregl.Popup({ maxWidth: "280px", offset: 12 })
+        .setLngLat([focus.lon, focus.lat]).setDOMContent(card).addTo(m);
+    };
+    if (ready.current) show(); else m.once("load", show);
+  }, [focus?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <div ref={box} className="map" role="region" aria-label={label} />;
 }

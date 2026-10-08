@@ -28,6 +28,7 @@ class Report:
     lon: float | None = None
     geohash6: str | None = None  # ~1.2 × 0.6 km cell
     landmark: str | None = None
+    area: str | None = None          # place name looked up from the pin, e.g. "Rajwada, Indore"
     smell: Smell = "unknown"
     colour: Colour = "unknown"
     taste: Taste = "unknown"

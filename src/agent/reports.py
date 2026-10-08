@@ -8,6 +8,7 @@ from typing import Any, get_args
 from common import db
 from common.geo import geohash6
 from common.models import Colour, Report, Smell, Source, Taste
+from common.places import area_name
 from common.timeutil import now_iso
 
 _ALLOWED = {
@@ -55,6 +56,7 @@ def save_extracted(ctx: TurnContext, fields: dict[str, Any]) -> Report:
         lat=ctx.lat,
         lon=ctx.lon,
         geohash6=geohash6(ctx.lat, ctx.lon) if ctx.lat is not None and ctx.lon is not None else None,
+        area=area_name(ctx.lat, ctx.lon) if ctx.lat is not None and ctx.lon is not None else None,
         photo_key=ctx.photo_key,
         audio_key=ctx.audio_key,
         lang=ctx.msg_lang or ctx.lang,

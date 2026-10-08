@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MapView, { PLACES } from "./MapView.jsx";
 import {
   Unauthorised, getClusters, getPublicClusters, getReports, saveKey, savedKey, setClusterStatus,
@@ -7,6 +7,7 @@ import { ago, describeReport, levelLabel, sickLabel, statusLabel } from "./forma
 import { LANGS, useLang } from "./i18n.js";
 
 const POLL_MS = 30000;
+const OFFICIALS_POLL_MS = 10000; // new reports should pop up quickly
 
 export default function App() {
   const isPublic = window.location.pathname.replace(/\/$/, "") === "/public";
@@ -84,14 +85,40 @@ function Dashboard({ dashboardKey, onSignOut }) {
   const [reports, setReports] = useState([]);
   const [clusters, setClusters] = useState([]);
   const [selected, setSelected] = useState(null); // {type: "cluster"|"report", id}
-  const [tab, setTab] = useState("clusters");
+  const [tab, setTab] = useState("reports");
+  const [mode, setMode] = useState("live");       // "live": only reports that arrive after opening
   const [place, setPlace] = useState("all");
   const [updated, setUpdated] = useState(null);
   const [error, setError] = useState(false);
+  const [toast, setToast] = useState(null);       // {id, kind: "new"|"located"}
+  const [focus, setFocus] = useState(null);       // {key, id}
+  const openedAt = useRef(new Date().toISOString().replace(/\.\d+Z$/, "Z"));
+  const known = useRef(null);                     // report_id -> had a location last time
+
+  const announce = useCallback((report, kind) => {
+    setToast({ id: report.report_id, kind });
+    setTab("reports");
+    setSelected({ type: "report", id: report.report_id });
+    if (report.lat != null) setFocus({ key: `${report.report_id}-${kind}`, id: report.report_id });
+  }, []);
 
   const load = useCallback(async () => {
     try {
       const [r, c] = await Promise.all([getReports(dashboardKey), getClusters(dashboardKey)]);
+      if (known.current === null) {
+        known.current = new Map(r.map((x) => [x.report_id, x.lat != null]));
+      } else {
+        // The newest change gets the pop-up: a brand-new report, or a pin arriving for one we had.
+        let latest = null;
+        for (const x of r) {
+          const had = known.current.get(x.report_id);
+          const located = x.lat != null;
+          const kind = had === undefined ? "new" : !had && located ? "located" : null;
+          if (kind && (!latest || x.created_at >= latest.report.created_at)) latest = { report: x, kind };
+          known.current.set(x.report_id, located);
+        }
+        if (latest) announce(latest.report, latest.kind);
+      }
       setReports(r);
       setClusters(c);
       setUpdated(new Date());
@@ -100,13 +127,18 @@ function Dashboard({ dashboardKey, onSignOut }) {
       if (err instanceof Unauthorised) onSignOut();
       else setError(true);
     }
-  }, [dashboardKey, onSignOut]);
+  }, [dashboardKey, onSignOut, announce]);
 
   useEffect(() => {
     load();
-    const timer = setInterval(load, POLL_MS);
+    const timer = setInterval(load, OFFICIALS_POLL_MS);
     return () => clearInterval(timer);
   }, [load]);
+
+  const visibleReports = useMemo(
+    () => (mode === "live" ? reports.filter((r) => r.created_at >= openedAt.current) : reports),
+    [mode, reports],
+  );
 
   const sortedClusters = useMemo(() => {
     const rank = { alert: 0, watch: 1, none: 2 };
@@ -116,6 +148,21 @@ function Dashboard({ dashboardKey, onSignOut }) {
 
   const openAlerts = clusters.filter((c) => c.level === "alert" && ["open", "acknowledged"].includes(c.status)).length;
   const sickReports = reports.filter((r) => (r.sick_count || 0) > 0).length;
+  const toastReport = toast && reports.find((r) => r.report_id === toast.id);
+  const focusReport = focus && reports.find((r) => r.report_id === focus.id);
+  const placeText = (r) => `📍 ${r.area || t("located").replace("📍 ", "")}`;
+  const mapFocus = focusReport && focusReport.lat != null ? {
+    key: focus.key,
+    lon: focusReport.lon,
+    lat: focusReport.lat,
+    title: focus.key.endsWith("-located") ? t("locationAdded") : t("newReport"),
+    lines: [describeReport(focusReport, t), focusReport.area, sickLabel(focusReport, t), ago(focusReport.created_at, t)],
+  } : null;
+
+  function showReport(r) {
+    setSelected({ type: "report", id: r.report_id });
+    if (r.lat != null) setFocus({ key: `${r.report_id}-view-${Date.now()}`, id: r.report_id });
+  }
 
   async function changeStatus(id, status) {
     await setClusterStatus(dashboardKey, id, status);
@@ -136,13 +183,28 @@ function Dashboard({ dashboardKey, onSignOut }) {
 
       <div className="body">
         <MapView
-          reports={reports}
+          reports={visibleReports}
           clusters={clusters}
           place={place}
+          focus={mapFocus}
           label={t("mapLabel")}
           onSelectCluster={(id) => { setTab("clusters"); setSelected({ type: "cluster", id }); }}
-          onSelectReport={(id) => { setTab("reports"); setSelected({ type: "report", id }); }}
+          onSelectReport={(id) => { const r = reports.find((x) => x.report_id === id); setTab("reports"); if (r) showReport(r); }}
         />
+
+        {toastReport && (
+          <div className="toast" role="status">
+            <div className="row">
+              <strong>{toast.kind === "located" ? t("locationAdded") : t("newReport")}</strong>
+              <button type="button" className="link" onClick={() => setToast(null)}>{t("close")}</button>
+            </div>
+            <div>{describeReport(toastReport, t)}</div>
+            <div className={(toastReport.sick_count || 0) > 0 ? "sick small" : "muted small"}>{sickLabel(toastReport, t)}</div>
+            <div className="muted small">
+              {toastReport.lat != null ? placeText(toastReport) : `📍 ${t("waitingLocation")}`} · {ago(toastReport.created_at, t)}
+            </div>
+          </div>
+        )}
 
         <aside className="panel">
           <div className="stats">
@@ -153,8 +215,8 @@ function Dashboard({ dashboardKey, onSignOut }) {
           {error && <p className="error" role="alert">{t("refreshError")}</p>}
 
           <div className="tabs" role="tablist">
+            <button role="tab" aria-selected={tab === "reports"} onClick={() => setTab("reports")}>{t("tabReports", { n: visibleReports.length })}</button>
             <button role="tab" aria-selected={tab === "clusters"} onClick={() => setTab("clusters")}>{t("tabClusters", { n: clusters.length })}</button>
-            <button role="tab" aria-selected={tab === "reports"} onClick={() => setTab("reports")}>{t("tabReports", { n: reports.length })}</button>
           </div>
 
           {tab === "clusters" ? (
@@ -168,19 +230,25 @@ function Dashboard({ dashboardKey, onSignOut }) {
               ))}
             </ul>
           ) : (
-            <ul className="list">
-              {reports.length === 0 && <Empty text={t("emptyReports")} />}
-              {reports.map((r) => (
-                <li key={r.report_id} className={`card report ${selected?.type === "report" && selected.id === r.report_id ? "selected" : ""}`}
-                  onClick={() => setSelected({ type: "report", id: r.report_id })}>
-                  <div className="row"><strong>{describeReport(r, t)}</strong><span className="muted small">{ago(r.created_at, t)}</span></div>
-                  <div className="row small">
-                    <span className={(r.sick_count || 0) > 0 ? "sick" : "muted"}>{sickLabel(r, t)}</span>
-                    <span className="muted">{r.lat != null ? t("located") : t("noLocation")}{r.photo_key ? ` · ${t("photo")}` : ""}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <>
+              <div className="places mode" role="group" aria-label={t("reportsShown")}>
+                <button type="button" aria-pressed={mode === "live"} onClick={() => setMode("live")}><span className="live-dot" aria-hidden="true" />{t("modeLive")}</button>
+                <button type="button" aria-pressed={mode === "all"} onClick={() => setMode("all")}>{t("modeAll")}</button>
+              </div>
+              <ul className="list">
+                {visibleReports.length === 0 && <Empty text={mode === "live" ? t("emptyLive") : t("emptyReports")} />}
+                {visibleReports.map((r) => (
+                  <li key={r.report_id} className={`card report ${selected?.type === "report" && selected.id === r.report_id ? "selected" : ""}`}
+                    onClick={() => showReport(r)}>
+                    <div className="row"><strong>{describeReport(r, t)}</strong><span className="muted small">{ago(r.created_at, t)}</span></div>
+                    <div className="row small">
+                      <span className={(r.sick_count || 0) > 0 ? "sick" : "muted"}>{sickLabel(r, t)}</span>
+                      <span className="muted">{r.lat != null ? placeText(r) : t("noLocation")}{r.photo_key ? ` · ${t("photo")}` : ""}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </aside>
       </div>

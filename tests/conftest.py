@@ -19,6 +19,7 @@ os.environ.update({
     "SESSIONS_TABLE": "Sessions",
     "PREFERENCES_TABLE": "Preferences",
     "MEDIA_BUCKET": "media-test",
+    "AREA_LOOKUP": "off",
 })
 os.environ.pop("AWS_PROFILE", None)
 

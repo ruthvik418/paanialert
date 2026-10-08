@@ -21,6 +21,7 @@ from agent.runner import AgentUnavailable, reply as agent_reply
 from common import db
 from common.geo import geohash6
 from common.hashing import phone_hash
+from common.places import area_name
 from common.twilio_send import send_whatsapp
 
 log = logging.getLogger()
@@ -92,6 +93,7 @@ def _handle_pin(state: dict, lat: float, lon: float, lang: str) -> str:
     report = db.get_report(state["last_report_id"]) if state.get("last_report_id") else None
     if report and report.lat is None:
         report.lat, report.lon, report.geohash6 = lat, lon, geohash6(lat, lon)
+        report.area = area_name(lat, lon)
         db.put_report(report)
         log.info("attached pin to report %s", report.report_id)
         return prompts.LOCATION_SAVED[lang] + "\n\n" + prompts.ADVICE[lang]

@@ -76,3 +76,14 @@ def test_number_without_menu_is_not_a_language(worker):
     from common import db
     from common.hashing import phone_hash
     assert db.get_language(phone_hash(PHONE)) is None
+
+
+def test_pin_adds_area_name(worker, monkeypatch):
+    from common import db
+    from common.hashing import phone_hash
+
+    monkeypatch.setattr(worker, "area_name", lambda lat, lon: "Rajwada, Indore")
+    worker.handle({"From": PHONE, "Body": "paani peela hai"})
+    worker.handle({"From": PHONE, "Body": "", "Latitude": "22.7196", "Longitude": "75.8577"})
+    report = db.get_report(db.get_session(phone_hash(PHONE))["last_report_id"])
+    assert report.area == "Rajwada, Indore"
