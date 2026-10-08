@@ -85,7 +85,7 @@ function Dashboard({ dashboardKey, onSignOut }) {
   const [clusters, setClusters] = useState([]);
   const [selected, setSelected] = useState(null); // {type: "cluster"|"report", id}
   const [tab, setTab] = useState("clusters");
-  const [place, setPlace] = useState("indore");
+  const [place, setPlace] = useState("all");
   const [updated, setUpdated] = useState(null);
   const [error, setError] = useState(false);
 
@@ -255,7 +255,7 @@ function PublicPage() {
   const { t } = useLang();
   const [clusters, setClusters] = useState([]);
   const [loaded, setLoaded] = useState(false);
-  const [place, setPlace] = useState("indore");
+  const [place, setPlace] = useState("all");
 
   useEffect(() => {
     const load = () => getPublicClusters().then((c) => { setClusters(c); setLoaded(true); }).catch(() => setLoaded(true));

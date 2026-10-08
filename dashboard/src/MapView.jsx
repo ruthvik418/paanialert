@@ -12,9 +12,11 @@ const STYLE = KEY
   ? `https://maps.geo.${REGION}.amazonaws.com/v2/styles/Standard/descriptor?key=${KEY}&color-scheme=Light`
   : "https://tiles.openfreemap.org/styles/liberty";
 
+// "all" fits the map to every report and cluster; with none yet it shows all of India.
 export const PLACES = {
-  indore: { label: "Indore", center: [75.8577, 22.7196], zoom: 12 },
-  delhi: { label: "Delhi", center: [77.209, 28.6139], zoom: 11 },
+  all: { center: [78.9, 22.5], zoom: 4 },
+  indore: { center: [75.8577, 22.7196], zoom: 12 },
+  delhi: { center: [77.209, 28.6139], zoom: 11 },
 };
 
 const LEVEL_COLOUR = ["match", ["get", "level"], "alert", "#c62828", "watch", "#e09100", "#7a8794"];
@@ -35,12 +37,13 @@ function toGeoJSON(items, props) {
   };
 }
 
-export default function MapView({ reports = [], clusters = [], place = "indore", label = "Map", onSelectCluster, onSelectReport }) {
+export default function MapView({ reports = [], clusters = [], place = "all", label = "Map", onSelectCluster, onSelectReport }) {
   const box = useRef(null);
   const map = useRef(null);
   const ready = useRef(false);
-  const latest = useRef({ reports, clusters });
-  latest.current = { reports, clusters };
+  const fitted = useRef(false);
+  const latest = useRef({ reports, clusters, place });
+  latest.current = { reports, clusters, place };
 
   useEffect(() => {
     const m = new maplibregl.Map({
@@ -81,6 +84,7 @@ export default function MapView({ reports = [], clusters = [], place = "indore",
       }
       ready.current = true;
       push(m, latest.current);
+      if (latest.current.place === "all") fitted.current = fitAll(m, latest.current);
     });
     map.current = m;
     return () => { ready.current = false; m.remove(); };
@@ -89,11 +93,16 @@ export default function MapView({ reports = [], clusters = [], place = "indore",
   }, []);
 
   useEffect(() => {
-    if (map.current && ready.current) push(map.current, { reports, clusters });
-  }, [reports, clusters]);
+    if (!map.current || !ready.current) return;
+    push(map.current, { reports, clusters });
+    // Zoom to the data the first time it arrives, so a report from anywhere is on screen.
+    if (place === "all" && !fitted.current) fitted.current = fitAll(map.current, { reports, clusters });
+  }, [reports, clusters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (map.current) map.current.flyTo({ center: PLACES[place].center, zoom: PLACES[place].zoom });
+    if (!map.current || !ready.current) return;
+    if (place === "all") fitAll(map.current, latest.current);
+    else map.current.flyTo({ center: PLACES[place].center, zoom: PLACES[place].zoom });
   }, [place]);
 
   return <div ref={box} className="map" role="region" aria-label={label} />;
@@ -111,6 +120,24 @@ const clusterProps = {
     closed: !["open", "acknowledged"].includes(c.status),
   }),
 };
+
+function fitAll(m, { reports, clusters }) {
+  const points = [
+    ...reports.filter((r) => r.lat != null && r.lon != null).map((r) => [r.lon, r.lat]),
+    ...clusters.map((c) => [c.centre_lon ?? c.lon, c.centre_lat ?? c.lat]).filter(([x, y]) => x != null && y != null),
+  ];
+  if (points.length === 0) {
+    m.flyTo({ center: PLACES.all.center, zoom: PLACES.all.zoom });
+    return false;
+  }
+  if (points.length === 1) {
+    m.flyTo({ center: points[0], zoom: 13 });
+    return true;
+  }
+  const bounds = points.reduce((b, p) => b.extend(p), new maplibregl.LngLatBounds(points[0], points[0]));
+  m.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 800 });
+  return true;
+}
 
 function push(m, { reports, clusters }) {
   m.getSource("reports")?.setData(toGeoJSON(reports, reportProps));

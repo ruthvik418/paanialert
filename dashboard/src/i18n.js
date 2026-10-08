@@ -11,6 +11,7 @@ const STRINGS = {
     language: "Language",
     jumpTo: "Jump to city",
     mapLabel: "Map of reports and clusters",
+    place_all: "All",
     place_indore: "Indore",
     place_delhi: "Delhi",
 
@@ -77,6 +78,7 @@ const STRINGS = {
     language: "भाषा",
     jumpTo: "शहर चुनें",
     mapLabel: "शिकायतों और क्लस्टरों का नक्शा",
+    place_all: "सभी",
     place_indore: "इंदौर",
     place_delhi: "दिल्ली",
 
