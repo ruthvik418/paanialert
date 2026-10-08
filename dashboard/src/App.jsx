@@ -3,13 +3,36 @@ import MapView, { PLACES } from "./MapView.jsx";
 import {
   Unauthorised, getClusters, getPublicClusters, getReports, saveKey, savedKey, setClusterStatus,
 } from "./api.js";
-import { LEVEL_LABEL, STATUS_LABEL, ago, describeReport, sickLabel } from "./format.js";
+import { ago, describeReport, levelLabel, sickLabel, statusLabel } from "./format.js";
+import { LANGS, useLang } from "./i18n.js";
 
 const POLL_MS = 30000;
 
 export default function App() {
   const isPublic = window.location.pathname.replace(/\/$/, "") === "/public";
   return isPublic ? <PublicPage /> : <OfficialsApp />;
+}
+
+function LanguageSwitch() {
+  const { lang, setLang, t } = useLang();
+  return (
+    <div className="places" role="group" aria-label={t("language")}>
+      {Object.entries(LANGS).map(([id, label]) => (
+        <button key={id} type="button" lang={id} aria-pressed={lang === id} onClick={() => setLang(id)}>{label}</button>
+      ))}
+    </div>
+  );
+}
+
+function PlaceSwitch({ place, setPlace }) {
+  const { t } = useLang();
+  return (
+    <div className="places" role="group" aria-label={t("jumpTo")}>
+      {Object.keys(PLACES).map((id) => (
+        <button key={id} type="button" aria-pressed={place === id} onClick={() => setPlace(id)}>{t(`place_${id}`)}</button>
+      ))}
+    </div>
+  );
 }
 
 /* Officials */
@@ -20,9 +43,10 @@ function OfficialsApp() {
   return <Dashboard dashboardKey={key} onSignOut={() => { saveKey(""); setKey(""); }} />;
 }
 
-function Passcode({ onKey, error: initialError }) {
+function Passcode({ onKey }) {
+  const { t } = useLang();
   const [value, setValue] = useState("");
-  const [error, setError] = useState(initialError || "");
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function submit(e) {
@@ -33,7 +57,7 @@ function Passcode({ onKey, error: initialError }) {
       await getClusters(value.trim());
       onKey(value.trim());
     } catch (err) {
-      setError(err instanceof Unauthorised ? "That key didn't work. Check it and try again." : "Couldn't reach the server. Check your connection.");
+      setError(err instanceof Unauthorised ? "pcWrong" : "pcOffline");
     } finally {
       setBusy(false);
     }
@@ -42,27 +66,28 @@ function Passcode({ onKey, error: initialError }) {
   return (
     <main className="passcode">
       <form onSubmit={submit} className="passcode-card">
-        <p className="eyebrow">PaaniAlert · Officials</p>
-        <h1>Enter the dashboard key</h1>
-        <p className="muted">Ask your team lead for the key. It stays in this browser tab only.</p>
-        <label htmlFor="key">Dashboard key</label>
+        <div className="row"><p className="eyebrow">{t("pcEyebrow")}</p><LanguageSwitch /></div>
+        <h1>{t("pcTitle")}</h1>
+        <p className="muted">{t("pcHelp")}</p>
+        <label htmlFor="key">{t("pcLabel")}</label>
         <input id="key" type="password" autoComplete="off" value={value} onChange={(e) => setValue(e.target.value)} required />
-        {error && <p className="error" role="alert">{error}</p>}
-        <button type="submit" disabled={busy || !value.trim()}>{busy ? "Checking…" : "Open dashboard"}</button>
-        <a className="muted small" href="/public">See the public cluster page</a>
+        {error && <p className="error" role="alert">{t(error)}</p>}
+        <button type="submit" disabled={busy || !value.trim()}>{busy ? t("pcChecking") : t("pcOpen")}</button>
+        <a className="muted small" href="/public">{t("pcPublic")}</a>
       </form>
     </main>
   );
 }
 
 function Dashboard({ dashboardKey, onSignOut }) {
+  const { t } = useLang();
   const [reports, setReports] = useState([]);
   const [clusters, setClusters] = useState([]);
   const [selected, setSelected] = useState(null); // {type: "cluster"|"report", id}
   const [tab, setTab] = useState("clusters");
   const [place, setPlace] = useState("indore");
   const [updated, setUpdated] = useState(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -70,17 +95,17 @@ function Dashboard({ dashboardKey, onSignOut }) {
       setReports(r);
       setClusters(c);
       setUpdated(new Date());
-      setError("");
+      setError(false);
     } catch (err) {
       if (err instanceof Unauthorised) onSignOut();
-      else setError("Couldn't refresh. Retrying in 30 seconds.");
+      else setError(true);
     }
   }, [dashboardKey, onSignOut]);
 
   useEffect(() => {
     load();
-    const t = setInterval(load, POLL_MS);
-    return () => clearInterval(t);
+    const timer = setInterval(load, POLL_MS);
+    return () => clearInterval(timer);
   }, [load]);
 
   const sortedClusters = useMemo(() => {
@@ -100,15 +125,12 @@ function Dashboard({ dashboardKey, onSignOut }) {
   return (
     <div className="shell">
       <header className="topbar">
-        <div className="brand"><span className="drop" aria-hidden="true" />PaaniAlert <span className="muted">Officials</span></div>
-        <div className="places" role="group" aria-label="Jump to city">
-          {Object.entries(PLACES).map(([id, p]) => (
-            <button key={id} type="button" aria-pressed={place === id} onClick={() => setPlace(id)}>{p.label}</button>
-          ))}
-        </div>
+        <div className="brand"><span className="drop" aria-hidden="true" />PaaniAlert <span className="muted">{t("officials")}</span></div>
+        <PlaceSwitch place={place} setPlace={setPlace} />
         <div className="topbar-right">
-          <span className="muted small">{updated ? `Updated ${updated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Loading…"}</span>
-          <button type="button" className="link" onClick={onSignOut}>Sign out</button>
+          <span className="muted small">{updated ? t("updated", { time: updated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }) : t("loading")}</span>
+          <LanguageSwitch />
+          <button type="button" className="link" onClick={onSignOut}>{t("signOut")}</button>
         </div>
       </header>
 
@@ -117,26 +139,27 @@ function Dashboard({ dashboardKey, onSignOut }) {
           reports={reports}
           clusters={clusters}
           place={place}
+          label={t("mapLabel")}
           onSelectCluster={(id) => { setTab("clusters"); setSelected({ type: "cluster", id }); }}
           onSelectReport={(id) => { setTab("reports"); setSelected({ type: "report", id }); }}
         />
 
         <aside className="panel">
           <div className="stats">
-            <Stat label="Open alerts" value={openAlerts} tone={openAlerts ? "alert" : ""} />
-            <Stat label="Reports, 48 h" value={reports.length} />
-            <Stat label="With sickness" value={sickReports} tone={sickReports ? "watch" : ""} />
+            <Stat label={t("statOpenAlerts")} value={openAlerts} tone={openAlerts ? "alert" : ""} />
+            <Stat label={t("statReports")} value={reports.length} />
+            <Stat label={t("statSick")} value={sickReports} tone={sickReports ? "watch" : ""} />
           </div>
-          {error && <p className="error" role="alert">{error}</p>}
+          {error && <p className="error" role="alert">{t("refreshError")}</p>}
 
           <div className="tabs" role="tablist">
-            <button role="tab" aria-selected={tab === "clusters"} onClick={() => setTab("clusters")}>Clusters ({clusters.length})</button>
-            <button role="tab" aria-selected={tab === "reports"} onClick={() => setTab("reports")}>Reports ({reports.length})</button>
+            <button role="tab" aria-selected={tab === "clusters"} onClick={() => setTab("clusters")}>{t("tabClusters", { n: clusters.length })}</button>
+            <button role="tab" aria-selected={tab === "reports"} onClick={() => setTab("reports")}>{t("tabReports", { n: reports.length })}</button>
           </div>
 
           {tab === "clusters" ? (
             <ul className="list">
-              {sortedClusters.length === 0 && <Empty text="No clusters yet. They appear when several nearby phones report bad water within 48 hours." />}
+              {sortedClusters.length === 0 && <Empty text={t("emptyClusters")} />}
               {sortedClusters.map((c) => (
                 <ClusterCard key={c.cluster_id} c={c}
                   selected={selected?.type === "cluster" && selected.id === c.cluster_id}
@@ -146,14 +169,14 @@ function Dashboard({ dashboardKey, onSignOut }) {
             </ul>
           ) : (
             <ul className="list">
-              {reports.length === 0 && <Empty text="No reports in the last 48 hours. Reports sent on WhatsApp show up here within 30 seconds." />}
+              {reports.length === 0 && <Empty text={t("emptyReports")} />}
               {reports.map((r) => (
                 <li key={r.report_id} className={`card report ${selected?.type === "report" && selected.id === r.report_id ? "selected" : ""}`}
                   onClick={() => setSelected({ type: "report", id: r.report_id })}>
-                  <div className="row"><strong>{describeReport(r)}</strong><span className="muted small">{ago(r.created_at)}</span></div>
+                  <div className="row"><strong>{describeReport(r, t)}</strong><span className="muted small">{ago(r.created_at, t)}</span></div>
                   <div className="row small">
-                    <span className={(r.sick_count || 0) > 0 ? "sick" : "muted"}>{sickLabel(r)}</span>
-                    <span className="muted">{r.lat != null ? "📍 located" : "no location yet"}{r.photo_key ? " · photo" : ""}</span>
+                    <span className={(r.sick_count || 0) > 0 ? "sick" : "muted"}>{sickLabel(r, t)}</span>
+                    <span className="muted">{r.lat != null ? t("located") : t("noLocation")}{r.photo_key ? ` · ${t("photo")}` : ""}</span>
                   </div>
                 </li>
               ))}
@@ -179,6 +202,7 @@ function Empty({ text }) {
 }
 
 function ClusterCard({ c, selected, onSelect, onStatus }) {
+  const { t } = useLang();
   const [confirm, setConfirm] = useState(null);
   const [busy, setBusy] = useState(false);
   const active = ["open", "acknowledged"].includes(c.status);
@@ -191,32 +215,32 @@ function ClusterCard({ c, selected, onSelect, onStatus }) {
   return (
     <li className={`card cluster ${c.level} ${selected ? "selected" : ""} ${active ? "" : "closed"}`} onClick={onSelect}>
       <div className="row">
-        <span className={`pill ${c.level}`}>{LEVEL_LABEL[c.level] || c.level}</span>
-        <span className="muted small">{STATUS_LABEL[c.status] || c.status}</span>
+        <span className={`pill ${c.level}`}>{levelLabel(c.level, t)}</span>
+        <span className="muted small">{statusLabel(c.status, t)}</span>
       </div>
       <div className="facts">
-        <span><b>{c.report_count}</b> reports</span>
-        <span><b>{c.distinct_phones}</b> phones</span>
-        <span className={c.sick_households ? "sick" : ""}><b>{c.sick_households}</b> sick households</span>
+        <span>{t("nReports", { n: c.report_count })}</span>
+        <span>{t("nPhones", { n: c.distinct_phones })}</span>
+        <span className={c.sick_households ? "sick" : ""}>{t("nSickHouseholds", { n: c.sick_households })}</span>
       </div>
       <p className="muted small">
-        First report {ago(c.first_seen)}
-        {c.alert_at ? ` · alert sent ${ago(c.alert_at)}` : ""}
-        {c.escalated_at ? " · escalated to health officer" : ""}
+        {t("firstReport", { ago: ago(c.first_seen, t) })}
+        {c.alert_at ? ` · ${t("alertSent", { ago: ago(c.alert_at, t) })}` : ""}
+        {c.escalated_at ? ` · ${t("escalated")}` : ""}
       </p>
       {active && (
         <div className="actions" onClick={(e) => e.stopPropagation()}>
           {confirm ? (
             <>
-              <span className="small">Mark as {STATUS_LABEL[confirm].toLowerCase()}?</span>
-              <button type="button" disabled={busy} onClick={() => apply(confirm)}>Yes</button>
-              <button type="button" className="ghost" disabled={busy} onClick={() => setConfirm(null)}>Cancel</button>
+              <span className="small">{t("markAs", { status: statusLabel(confirm, t) })}</span>
+              <button type="button" disabled={busy} onClick={() => apply(confirm)}>{t("yes")}</button>
+              <button type="button" className="ghost" disabled={busy} onClick={() => setConfirm(null)}>{t("cancel")}</button>
             </>
           ) : (
             <>
-              {c.status === "open" && <button type="button" className="ghost" disabled={busy} onClick={() => apply("acknowledged")}>Acknowledge</button>}
-              <button type="button" className="ghost" disabled={busy} onClick={() => setConfirm("fixed")}>Fixed</button>
-              <button type="button" className="ghost" disabled={busy} onClick={() => setConfirm("false_alarm")}>False alarm</button>
+              {c.status === "open" && <button type="button" className="ghost" disabled={busy} onClick={() => apply("acknowledged")}>{t("acknowledge")}</button>}
+              <button type="button" className="ghost" disabled={busy} onClick={() => setConfirm("fixed")}>{statusLabel("fixed", t)}</button>
+              <button type="button" className="ghost" disabled={busy} onClick={() => setConfirm("false_alarm")}>{statusLabel("false_alarm", t)}</button>
             </>
           )}
         </div>
@@ -228,6 +252,7 @@ function ClusterCard({ c, selected, onSelect, onStatus }) {
 /* Public */
 
 function PublicPage() {
+  const { t } = useLang();
   const [clusters, setClusters] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [place, setPlace] = useState("indore");
@@ -235,47 +260,44 @@ function PublicPage() {
   useEffect(() => {
     const load = () => getPublicClusters().then((c) => { setClusters(c); setLoaded(true); }).catch(() => setLoaded(true));
     load();
-    const t = setInterval(load, POLL_MS);
-    return () => clearInterval(t);
+    const timer = setInterval(load, POLL_MS);
+    return () => clearInterval(timer);
   }, []);
+
+  function status(c) {
+    if (c.status === "acknowledged") return t("pubAck");
+    if (c.alert_at) return t("pubNotified", { ago: ago(c.alert_at, t) });
+    return t("pubWatching");
+  }
 
   return (
     <div className="shell public">
       <header className="topbar">
-        <div className="brand"><span className="drop" aria-hidden="true" />PaaniAlert <span className="muted">Public · सार्वजनिक</span></div>
-        <div className="places" role="group" aria-label="Jump to city">
-          {Object.entries(PLACES).map(([id, p]) => (
-            <button key={id} type="button" aria-pressed={place === id} onClick={() => setPlace(id)}>{p.label}</button>
-          ))}
-        </div>
+        <div className="brand"><span className="drop" aria-hidden="true" />PaaniAlert <span className="muted">{t("public")}</span></div>
+        <PlaceSwitch place={place} setPlace={setPlace} />
+        <div className="topbar-right"><LanguageSwitch /></div>
       </header>
       <div className="body">
-        <MapView clusters={clusters} place={place} />
+        <MapView clusters={clusters} place={place} label={t("mapLabel")} />
         <aside className="panel">
-          <h1 className="public-title">Bad-water warnings near you<br /><span className="muted">आपके पास खराब पानी की चेतावनी</span></h1>
-          <p className="muted small">Areas where several residents reported bad drinking water in the last 48 hours. Boil drinking water if you live nearby.</p>
+          <h1 className="public-title">{t("pubTitle")}</h1>
+          <p className="muted small">{t("pubHelp")}</p>
           <ul className="list">
-            {loaded && clusters.length === 0 && <Empty text="No active warnings right now. · अभी कोई चेतावनी नहीं है।" />}
+            {loaded && clusters.length === 0 && <Empty text={t("pubEmpty")} />}
             {clusters.map((c, i) => (
               <li key={i} className={`card cluster ${c.level}`}>
-                <div className="row"><span className={`pill ${c.level}`}>{LEVEL_LABEL[c.level]}</span><span className="muted small">{ago(c.first_seen)}</span></div>
+                <div className="row"><span className={`pill ${c.level}`}>{levelLabel(c.level, t)}</span><span className="muted small">{ago(c.first_seen, t)}</span></div>
                 <div className="facts">
-                  <span><b>{c.report_count}</b> reports · शिकायतें</span>
-                  <span className={c.sick_households ? "sick" : ""}><b>{c.sick_households}</b> sick households · बीमार घर</span>
+                  <span>{t("nReports", { n: c.report_count })}</span>
+                  <span className={c.sick_households ? "sick" : ""}>{t("nSickHouseholds", { n: c.sick_households })}</span>
                 </div>
-                <p className="small">{publicStatus(c)}</p>
+                <p className="small">{status(c)}</p>
               </li>
             ))}
           </ul>
-          <p className="muted small">Report bad water on WhatsApp. · खराब पानी की शिकायत WhatsApp पर करें।</p>
+          <p className="muted small">{t("pubFooter")}</p>
         </aside>
       </div>
     </div>
   );
-}
-
-function publicStatus(c) {
-  if (c.status === "acknowledged") return "The ward engineer has acknowledged this. · वार्ड इंजीनियर ने देख लिया है।";
-  if (c.alert_at) return `Engineer notified ${ago(c.alert_at)}. No action recorded yet. · इंजीनियर को सूचना दी गई, अभी कार्रवाई दर्ज नहीं।`;
-  return "Being watched. · निगरानी में।";
 }

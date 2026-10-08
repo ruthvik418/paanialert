@@ -35,7 +35,7 @@ function toGeoJSON(items, props) {
   };
 }
 
-export default function MapView({ reports = [], clusters = [], place = "indore", onSelectCluster, onSelectReport }) {
+export default function MapView({ reports = [], clusters = [], place = "indore", label = "Map", onSelectCluster, onSelectReport }) {
   const box = useRef(null);
   const map = useRef(null);
   const ready = useRef(false);
@@ -96,7 +96,7 @@ export default function MapView({ reports = [], clusters = [], place = "indore",
     if (map.current) map.current.flyTo({ center: PLACES[place].center, zoom: PLACES[place].zoom });
   }, [place]);
 
-  return <div ref={box} className="map" role="region" aria-label="Map of reports and clusters" />;
+  return <div ref={box} className="map" role="region" aria-label={label} />;
 }
 
 const reportProps = {

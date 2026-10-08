@@ -82,7 +82,7 @@ def send_alerts(c: Cluster) -> None:
                           c.centre_lat, c.centre_lon, DASHBOARD_URL))
     for sub in db.subscribers_in_cells(c.cells):
         try:
-            send_whatsapp(sub["phone"], advisory_text(c.report_count, c.sick_households, sub.get("lang", "hi")))
+            send_whatsapp(sub["phone"], advisory_text(c.report_count, c.sick_households, sub.get("lang", "en")))
         except Exception:
             # Usually Twilio's 24-hour window or missing credentials; one failure mustn't stop the rest.
             log.exception("advisory failed for one subscriber in %s", c.cluster_id)

@@ -1,7 +1,7 @@
 """Handles one queued WhatsApp message: understand it, save it, reply. Owner: B.
 
-Language: replies are in Hindi until the person picks another language. New
-people get a menu (1 हिंदी, 2 English, 3 Hinglish) after their first reply;
+Language: replies are in English until the person picks another language. New
+people get a menu (1 English, 2 हिंदी, 3 Hinglish) after their first reply;
 "भाषा", "bhasha" or "language" shows it again. The choice is saved per phone
 and also used for their alerts.
 
@@ -33,7 +33,7 @@ LANGUAGE_WORDS = {
     "english": "en", "angrezi": "en", "अंग्रेज़ी": "en", "अंग्रेजी": "en",
     "hinglish": "hinglish", "roman hindi": "hinglish",
 }
-MENU_NUMBERS = {"1": "hi", "2": "en", "3": "hinglish", "१": "hi", "२": "en", "३": "hinglish"}
+MENU_NUMBERS = {"1": "en", "2": "hi", "3": "hinglish", "१": "en", "२": "hi", "३": "hinglish"}
 
 
 def handler(event, context):

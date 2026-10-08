@@ -137,7 +137,7 @@ def reply(text: str, ctx: TurnContext, turns: list[dict[str, str]]) -> str:
         notes.append("[the location is already known]")
     if ctx.photo_key:
         notes.append("[the person attached a photo]")
-    notes.append(f"[Reply in {LANGUAGES.get(ctx.lang, LANGUAGES['hi'])}]")
+    notes.append(f"[Reply in {LANGUAGES.get(ctx.lang, LANGUAGES['en'])}]")
     prompt = (text + " " + " ".join(notes)).strip()
 
     for model_id in MODEL_IDS:

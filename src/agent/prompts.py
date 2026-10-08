@@ -1,10 +1,10 @@
 """What the agent is told, and every fixed message the bot sends. Owner: B.
 
-Replies are in Hindi unless the person picks another language from the menu
+Replies are in English unless the person picks another language from the menu
 (see worker/app.py). Every message dict has "hi", "en" and "hinglish".
 """
 
-DEFAULT_LANG = "hi"
+DEFAULT_LANG = "en"
 
 LANGUAGES = {
     "hi": "Hindi in Devanagari script",
@@ -75,11 +75,11 @@ UNSUBSCRIBED = {
 }
 
 LANGUAGE_MENU = (
-    "भाषा चुनें / Choose your language:\n"
-    "1️⃣ हिंदी\n"
-    "2️⃣ English\n"
+    "Choose your language / भाषा चुनें:\n"
+    "1️⃣ English\n"
+    "2️⃣ हिंदी\n"
     "3️⃣ Hinglish (Roman Hindi)\n"
-    "नंबर भेजें / Reply with a number."
+    "Reply with a number / नंबर भेजें."
 )
 
 LANGUAGE_SET = {

@@ -23,7 +23,7 @@ class TurnContext:
     """What the worker knows about the person and this message."""
 
     phone_hash: str
-    lang: str                       # language to reply in (the person's choice, Hindi by default)
+    lang: str                       # language to reply in (the person's choice, English by default)
     msg_lang: str | None = None     # language the message was written in, stored on the report
     lat: float | None = None
     lon: float | None = None

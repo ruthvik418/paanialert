@@ -13,7 +13,7 @@ def advisory_text(report_count: int, sick_households: int, lang: str) -> str:
         "hi": f"⚠️ PaaniAlert: पिछले 2 दिनों में आपके पास खराब पानी की {report_count} शिकायतें{sick_hi}।",
         "hinglish": f"⚠️ PaaniAlert: pichhle 2 din mein aapke paas kharab paani ki {report_count} shikayatein{sick_hinglish}.",
     }
-    lang = lang if lang in lines else "hi"
+    lang = lang if lang in lines else "en"
     stop = {
         "en": "Reply STOP to stop these alerts.",
         "hi": "ये चेतावनियाँ बंद करने के लिए STOP लिखें।",

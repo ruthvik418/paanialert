@@ -25,8 +25,8 @@ def test_complaint_then_pin_attaches_location(worker):
     from common.hashing import phone_hash
 
     answer = worker.handle({"From": PHONE, "Body": "Nal ka paani peela aa raha hai, badboo hai, 2 din se"})
-    assert "दर्ज" in answer and "📍" in answer          # saved in Hindi, asked for a pin
-    assert "भाषा चुनें" in answer                       # first contact shows the language menu
+    assert "saved" in answer and "📍" in answer         # saved in English, asked for a pin
+    assert "Choose your language" in answer             # first contact shows the language menu
 
     state = db.get_session(phone_hash(PHONE))
     report = db.get_report(state["last_report_id"])
@@ -58,13 +58,13 @@ def test_greeting_saves_nothing(worker):
 
 
 def test_language_choice_sticks(worker):
-    worker.handle({"From": PHONE, "Body": "hello"})          # first contact: Hindi + menu
-    assert "बताइए" in worker.sent[-1][1] and "1️⃣" in worker.sent[-1][1]
-    worker.handle({"From": PHONE, "Body": "2"})               # picks English
-    assert "English" in worker.sent[-1][1]
-    answer = worker.handle({"From": PHONE, "Body": "water is brown"})
-    assert "saved" in answer and "1️⃣" not in answer
-    worker.handle({"From": PHONE, "Body": "bhasha"})          # menu again
+    worker.handle({"From": PHONE, "Body": "hello"})          # first contact: English + menu
+    assert "Tell me" in worker.sent[-1][1] and "1️⃣" in worker.sent[-1][1]
+    worker.handle({"From": PHONE, "Body": "2"})               # picks Hindi
+    assert "हिंदी" in worker.sent[-1][1]
+    answer = worker.handle({"From": PHONE, "Body": "paani bhura hai"})
+    assert "दर्ज" in answer and "1️⃣" not in answer
+    worker.handle({"From": PHONE, "Body": "language"})        # menu again
     worker.handle({"From": PHONE, "Body": "3"})               # Hinglish
     assert "Hinglish" in worker.sent[-1][1]
 
