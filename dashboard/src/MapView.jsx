@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl/dist/maplibre-gl-csp";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-csp-worker.js?url";
+import { Crosshair, WarningCircle } from "@phosphor-icons/react";
+import { THEMES } from "./theme.js";
 
 // Load MapLibre's tile worker from our own origin instead of a blob: URL. Tile requests come
 // from that worker, and the Amazon Location key only accepts requests whose Referer is our site.
@@ -8,9 +10,10 @@ maplibregl.setWorkerUrl(workerUrl);
 
 const KEY = import.meta.env.VITE_LOCATION_KEY;
 const REGION = import.meta.env.VITE_LOCATION_REGION || "ap-south-1";
-const STYLE = KEY
-  ? `https://maps.geo.${REGION}.amazonaws.com/v2/styles/Standard/descriptor?key=${KEY}&color-scheme=Dark`
-  : "https://tiles.openfreemap.org/styles/dark";
+// Dark for the officials' dashboard, light for the resident pages (readable in sunlight).
+const styleFor = (theme) => (KEY
+  ? `https://maps.geo.${REGION}.amazonaws.com/v2/styles/Standard/descriptor?key=${KEY}&color-scheme=${theme === "light" ? "Light" : "Dark"}`
+  : `https://tiles.openfreemap.org/styles/${theme === "light" ? "positron" : "dark"}`);
 
 // "all" fits the map to every report and cluster; with none yet it shows all of India.
 export const PLACES = {
@@ -19,7 +22,11 @@ export const PLACES = {
   delhi: { center: [77.209, 28.6139], zoom: 11 },
 };
 
-const LEVEL_COLOUR = ["match", ["get", "level"], "alert", "#e3736b", "watch", "#ddb16b", "#7a8582"];
+// Cluster colour by level, or grey once it's closed as a false alarm, green once fixed.
+const clusterColour = (c) => ["case",
+  ["==", ["get", "status"], "fixed"], c.fixed,
+  ["==", ["get", "status"], "false_alarm"], c.falseAlarm,
+  ["match", ["get", "level"], "alert", c.alert, "watch", c.watch, c.falseAlarm]];
 
 // A cluster covers roughly 500 m; this keeps the circle that size on the ground at any zoom.
 const RADIUS_500M = ["interpolate", ["exponential", 2], ["zoom"], 10, 3.5, 18, 887];
@@ -42,7 +49,8 @@ function toGeoJSON(items, props) {
 // `pin` = {lat, lon, fly} shows a marker there (and flies to it when fly is true).
 // `circles` = [{id, lat, lon, radius_m, kind: "boil"|"do_not_use", draft}]: warning areas; a draft is dashed.
 // `fitCircle` = one of them to zoom to (when its id or radius changes).
-export default function MapView({ reports = [], clusters = [], circles = [], fitCircle, place = "all", label = "Map", focus, onSelectCluster, onSelectReport, onPick, pin, pickCentreLabel }) {
+// `theme` = "dark" | "light": map style and status colours (theme.js).
+export default function MapView({ reports = [], clusters = [], circles = [], fitCircle, place = "all", label = "Map", focus, onSelectCluster, onSelectReport, onPick, pin, pickCentreLabel, theme = "dark", failedText }) {
   const box = useRef(null);
   const [mapFailed, setMapFailed] = useState(false);
   const map = useRef(null);
@@ -54,35 +62,44 @@ export default function MapView({ reports = [], clusters = [], circles = [], fit
   latest.current = { reports, clusters, circles, place, onSelectCluster, onSelectReport, onPick };
 
   useEffect(() => {
+    const c = THEMES[theme];
     const m = new maplibregl.Map({
       container: box.current,
-      style: STYLE,
+      style: styleFor(theme),
       center: PLACES[place].center,
       zoom: PLACES[place].zoom,
       attributionControl: { compact: true },
     });
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-    m.on("error", () => { if (!ready.current) setMapFailed(true); });
+    // Only a style that can't load means "no map". A missing tile, glyph or a layer error isn't a dead map.
+    m.on("error", (e) => { if (!ready.current && !e.sourceId && !e.tile && !m.isStyleLoaded()) setMapFailed(true); });
     m.on("load", () => {
       setMapFailed(false);
+      m.getContainer().querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
       m.addSource("clusters", { type: "geojson", data: toGeoJSON([], clusterProps) });
       m.addSource("reports", { type: "geojson", data: toGeoJSON([], reportProps) });
       m.addSource("circles", { type: "geojson", data: circlesGeoJSON([]) });
+      // Warnings: a red outline (dashed while it's a draft); "don't use" gets a stronger fill than "boil".
       m.addLayer({
         id: "circles-fill", type: "fill", source: "circles",
-        paint: { "fill-color": WARNING_COLOUR, "fill-opacity": ["case", ["get", "draft"], 0.18, 0.1] },
+        paint: { "fill-color": c.warning, "fill-opacity": ["case", ["get", "draft"], 0.14, ["==", ["get", "kind"], "do_not_use"], 0.14, 0.06] },
+      });
+      // line-dasharray can't depend on data, so issued and draft circles are two layers.
+      m.addLayer({
+        id: "circles-line", type: "line", source: "circles", filter: ["!", ["get", "draft"]],
+        paint: { "line-color": c.warning, "line-width": 2.5 },
       });
       m.addLayer({
-        id: "circles-line", type: "line", source: "circles",
-        paint: { "line-color": WARNING_COLOUR, "line-width": 2, "line-dasharray": ["case", ["get", "draft"], ["literal", [2, 2]], ["literal", [1, 0]]] },
+        id: "circles-draft", type: "line", source: "circles", filter: ["get", "draft"],
+        paint: { "line-color": c.warning, "line-width": 2.5, "line-dasharray": [2, 1.5] },
       });
       m.addLayer({
         id: "clusters", type: "circle", source: "clusters",
         paint: {
           "circle-radius": RADIUS_500M,
-          "circle-color": LEVEL_COLOUR,
-          "circle-opacity": ["case", ["get", "closed"], 0.12, 0.22],
-          "circle-stroke-color": LEVEL_COLOUR,
+          "circle-color": clusterColour(c),
+          "circle-opacity": ["case", ["get", "closed"], 0.1, 0.24],
+          "circle-stroke-color": clusterColour(c),
           "circle-stroke-width": 2,
         },
       });
@@ -90,8 +107,8 @@ export default function MapView({ reports = [], clusters = [], circles = [], fit
         id: "reports", type: "circle", source: "reports",
         paint: {
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 4, 16, 8],
-          "circle-color": "#56b7a7",
-          "circle-stroke-color": ["case", ["get", "sick"], "#e3736b", "#dce5e2"],
+          "circle-color": c.report,
+          "circle-stroke-color": ["case", ["get", "sick"], c.alert, theme === "light" ? "#ffffff" : "#0d1212"],
           "circle-stroke-width": ["case", ["get", "sick"], 3, 1.5],
         },
       });
@@ -106,8 +123,11 @@ export default function MapView({ reports = [], clusters = [], circles = [], fit
       push(m, latest.current);
       if (latest.current.place === "all") fitted.current = fitAll(m, latest.current);
     });
+    // The box can change size after the map starts (fonts, a warning banner, panels): keep the canvas filling it.
+    const resize = new ResizeObserver(() => m.resize());
+    resize.observe(box.current);
     map.current = m;
-    return () => { ready.current = false; m.remove(); };
+    return () => { resize.disconnect(); ready.current = false; m.remove(); };
     // The map is created once; data and place changes are applied below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -162,7 +182,7 @@ export default function MapView({ reports = [], clusters = [], circles = [], fit
     const m = map.current;
     if (!m) return;
     if (!pin) { marker.current?.remove(); marker.current = null; return; }
-    if (!marker.current) marker.current = new maplibregl.Marker({ color: "#56b7a7" });
+    if (!marker.current) marker.current = new maplibregl.Marker({ color: THEMES[theme].pin });
     marker.current.setLngLat([pin.lon, pin.lat]).addTo(m);
     if (pin.fly) m.flyTo({ center: [pin.lon, pin.lat], zoom: Math.max(m.getZoom(), 15), duration: 900 });
   }, [pin?.lat, pin?.lon, pin?.fly]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -174,7 +194,8 @@ export default function MapView({ reports = [], clusters = [], circles = [], fit
 
   return <><div ref={box} className="map" role="region" aria-label={label} />
     {onPick && pickCentreLabel && <span className="map-crosshair" aria-hidden="true" />}
-    {onPick && pickCentreLabel && <button type="button" className="map-pick-centre" onClick={pickCentre}>{pickCentreLabel}</button>}{mapFailed && <div className="map-provider-error" role="status"><strong>Map tiles unavailable</strong><span>Use the incident list to review locations while the map service is unavailable.</span></div>}</>;
+    {onPick && pickCentreLabel && <button type="button" className="map-pick-centre" onClick={pickCentre}><Crosshair size={20} weight="bold" aria-hidden="true" />{pickCentreLabel}</button>}
+    {mapFailed && <div className="map-provider-error" role="status"><WarningCircle size={18} weight="bold" aria-hidden="true" /><span><strong>{failedText?.[0] || "Map tiles unavailable"}</strong><span>{failedText?.[1] || "Use the incident list to review locations while the map service is unavailable."}</span></span></div>}</>;
 }
 
 const reportProps = {
@@ -186,6 +207,7 @@ const clusterProps = {
   fields: (c) => ({
     cluster_id: c.cluster_id || "",
     level: c.level,
+    status: c.status || "open",
     closed: !["open", "acknowledged"].includes(c.status),
   }),
 };
@@ -207,8 +229,6 @@ function fitAll(m, { reports, clusters }) {
   m.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 800 });
   return true;
 }
-
-const WARNING_COLOUR = ["match", ["get", "kind"], "do_not_use", "#e3736b", "#ddb16b"];
 
 // A circle on the ground as a 64-point polygon ring ([lon, lat] pairs).
 function circleRing({ lat, lon, radius_m }) {
