@@ -10,6 +10,8 @@
   cell moves.
 - Fixed or false alarm, but new complaints in its cells since: reopened, and
   alerted again like a new outbreak.
+- Everything it does (level reached, each advisory, SNS, escalation, reopening)
+  is written to the Activity table for the dashboard.
 """
 from __future__ import annotations
 
@@ -23,6 +25,7 @@ import boto3
 from agent.messages import advisory_text, all_clear_text, official_text
 from cluster.rule import _parse, evaluate
 from common import db
+from common.hashing import mask_number
 from common.models import Cluster
 from common.timeutil import hours_ago_iso, iso, now
 from common.twilio_send import send_whatsapp
@@ -32,6 +35,7 @@ log.setLevel(logging.INFO)
 
 ESCALATE_AFTER_MIN = int(os.environ.get("ESCALATE_AFTER_MIN", "1440"))
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "")
+LEVEL_RANK = {"none": 0, "watch": 1, "alert": 2}
 _sns = None
 
 
@@ -69,7 +73,11 @@ def run() -> dict:
             cluster.reopen_count += 1
             cluster.alert_at = cluster.escalated_at = None    # alert again like a new outbreak
             log.info("reopened %s after new complaints", cluster.cluster_id)
+            db.log_activity("status", cluster.cluster_id, status="reopened", was=prev.status)
             summary["reopened"] += 1
+        if LEVEL_RANK[cluster.level] > LEVEL_RANK[prev.level if prev else "none"]:
+            db.log_activity("level", cluster.cluster_id, level=cluster.level, report_count=cluster.report_count,
+                            distinct_phones=cluster.distinct_phones, sick_households=cluster.sick_households)
         if cluster.level == "alert" and cluster.alert_at is None and cluster.status == "open":
             cluster.alert_at = iso(current)
             send_alerts(cluster)
@@ -88,6 +96,7 @@ def run() -> dict:
                 escalate(c)
                 c.escalated_at = iso(current)
                 db.put_cluster(c)
+                db.log_activity("escalated", c.cluster_id, after_min=ESCALATE_AFTER_MIN)
                 summary["escalated"] += 1
     return summary
 
@@ -125,47 +134,64 @@ def complaints_since_closed(c: Cluster, reports) -> bool:
 
 
 def send_alerts(c: Cluster) -> None:
-    publish(os.environ.get("WARD_TOPIC_ARN"), f"PaaniAlert: bad-water alert ({c.report_count} reports)",
-            official_text(c.cluster_id, c.level, c.report_count, c.distinct_phones, c.sick_households,
-                          c.centre_lat, c.centre_lon, DASHBOARD_URL))
-    for sub in db.subscribers_in_cells(c.cells):
-        try:
-            send_whatsapp(sub["phone"], advisory_text(c.report_count, c.sick_households, sub.get("lang", "en")))
-        except Exception:
-            # Usually Twilio's 24-hour window or missing credentials; one failure mustn't stop the rest.
-            log.exception("advisory failed for one subscriber in %s", c.cluster_id)
+    notify("ward", c, f"PaaniAlert: bad-water alert ({c.report_count} reports)",
+           official_text(c.cluster_id, c.level, c.report_count, c.distinct_phones, c.sick_households,
+                         c.centre_lat, c.centre_lon, DASHBOARD_URL))
+    message_subscribers(c, "advisory", lambda lang: advisory_text(c.report_count, c.sick_households, lang))
 
 
 def send_all_clear(c: Cluster) -> int:
     """WhatsApp all-clear to subscribers in the area, in their language. Returns how many were sent."""
+    return message_subscribers(c, "all_clear", all_clear_text)
+
+
+def message_subscribers(c: Cluster, kind: str, text_for) -> int:
+    """WhatsApp every subscriber in the cluster's cells, logging each one. Returns how many were sent."""
     sent = 0
     for sub in db.subscribers_in_cells(c.cells):
+        to = mask_number(sub["phone"])
         try:
-            send_whatsapp(sub["phone"], all_clear_text(sub.get("lang", "en")))
-            sent += 1
-        except Exception:
-            log.exception("all-clear failed for one subscriber in %s", c.cluster_id)
+            sid = send_whatsapp(sub["phone"], text_for(sub.get("lang", "en")))
+        except Exception as exc:
+            # Usually Twilio's 24-hour window or missing credentials; one failure mustn't stop the rest.
+            log.exception("%s failed for one subscriber in %s", kind, c.cluster_id)
+            db.log_activity(kind, c.cluster_id, to=to, ok=False, error=str(exc)[:200])
+            continue
+        db.log_activity(kind, c.cluster_id, to=to, ok=True, sid=sid)
+        sent += 1
     return sent
 
 
 def escalate(c: Cluster) -> None:
     hours = ESCALATE_AFTER_MIN / 60
-    publish(os.environ.get("HEALTH_TOPIC_ARN"),
-            f"PaaniAlert ESCALATION: no action on bad-water alert after {hours:g} h",
-            f"Nobody has acknowledged or closed this alert since {c.alert_at}.\n\n" +
-            official_text(c.cluster_id, c.level, c.report_count, c.distinct_phones, c.sick_households,
-                          c.centre_lat, c.centre_lon, DASHBOARD_URL))
+    notify("health", c, f"PaaniAlert ESCALATION: no action on bad-water alert after {hours:g} h",
+           f"Nobody has acknowledged or closed this alert since {c.alert_at}.\n\n" +
+           official_text(c.cluster_id, c.level, c.report_count, c.distinct_phones, c.sick_households,
+                         c.centre_lat, c.centre_lon, DASHBOARD_URL))
 
 
-def publish(topic_arn: str | None, subject: str, message: str) -> None:
+def notify(to: str, c: Cluster, subject: str, message: str) -> None:
+    """SNS to the ward engineer ("ward") or district health officer ("health"), logged as activity."""
+    topic = os.environ.get("WARD_TOPIC_ARN" if to == "ward" else "HEALTH_TOPIC_ARN")
+    try:
+        published = publish(topic, subject, message)
+    except Exception as exc:
+        db.log_activity("sns", c.cluster_id, to=to, subject=subject[:100], ok=False, error=str(exc)[:200])
+        raise
+    db.log_activity("sns", c.cluster_id, to=to, subject=subject[:100], ok=bool(published),
+                    error=None if published else "no SNS topic configured")
+
+
+def publish(topic_arn: str | None, subject: str, message: str) -> bool:
     global _sns
     if not topic_arn:
         log.warning("no SNS topic configured; skipped: %s", subject)
-        return
+        return False
     if _sns is None:
         _sns = boto3.client("sns")
     _sns.publish(TopicArn=topic_arn, Subject=subject[:100], Message=message)
     log.info("published to %s: %s", topic_arn.rsplit(":", 1)[-1], subject)
+    return True
 
 
 def active_notice_cells(now_iso: str) -> set[str]:

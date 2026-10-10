@@ -30,6 +30,8 @@ export const getReports = (key, since) =>
   call(`/reports${since ? `?since=${encodeURIComponent(since)}` : ""}`, { key }).then((d) => d.reports);
 export const getClusters = (key) => call("/clusters", { key }).then((d) => d.clusters);
 export const getPublicClusters = () => call("/public/clusters").then((d) => d.clusters);
+export const getActivity = (key, since) =>
+  call(`/activity${since ? `?since=${encodeURIComponent(since)}` : ""}`, { key }).then((d) => d.activity);
 // Reveals the reporter's full number; the server logs every call.
 export const getContact = (key, id) =>
   call(`/reports/${encodeURIComponent(id)}/contact`, { key, method: "POST" }).then((d) => d.phone);

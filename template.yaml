@@ -51,6 +51,7 @@ Globals:
         PROCESSED_TABLE: !Ref ProcessedMessagesTable
         CONTACTS_TABLE: !Ref ContactsTable
         AUDIT_TABLE: !Ref AuditLogTable
+        ACTIVITY_TABLE: !Ref ActivityTable
         MEDIA_BUCKET: !Ref MediaBucket
         TWILIO_WHATSAPP_FROM: !Ref TwilioWhatsAppFrom
   HttpApi:
@@ -174,6 +175,15 @@ Resources:
       KeySchema:
         - { AttributeName: audit_id, KeyType: HASH }
 
+  ActivityTable:   # every alert, message, email and status change, for the dashboard's Activity panel
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: activity_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: activity_id, KeyType: HASH }
+
   MediaBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -294,6 +304,10 @@ Resources:
         - SNSPublishMessagePolicy: { TopicName: !GetAtt WardEngineerTopic.TopicName }
         - SNSPublishMessagePolicy: { TopicName: !GetAtt HealthOfficerTopic.TopicName }
         - SSMParameterReadPolicy: { ParameterName: paanialert/* }
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt ActivityTable.Arn
       Events:
         Every15Minutes:
           Type: Schedule
@@ -319,6 +333,9 @@ Resources:
               Action: dynamodb:PutItem
               Resource: !GetAtt AuditLogTable.Arn
             - Effect: Allow
+              Action: [dynamodb:PutItem, dynamodb:Scan]   # log status changes and all-clears; GET /activity
+              Resource: !GetAtt ActivityTable.Arn
+            - Effect: Allow
               Action: s3:GetObject          # presigned links to report photos
               Resource: !Sub "${MediaBucket.Arn}/media/*"
       Events:
@@ -337,6 +354,9 @@ Resources:
         ReportPhoto:
           Type: HttpApi
           Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: "/reports/{id}/photo" }
+        Activity:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /activity }
         PublicClusters:
           Type: HttpApi
           Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /public/clusters }

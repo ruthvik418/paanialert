@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from typing import Any
@@ -10,8 +11,10 @@ import boto3
 from boto3.dynamodb.conditions import Attr, Key
 
 from common.config import REGION, table
-from common.models import Cluster, Report, from_item, to_item
+from common.models import Cluster, Report, _from_dynamo, _to_dynamo, from_item, to_item
+from common.timeutil import now_iso
 
+log = logging.getLogger(__name__)
 _resource = None
 
 
@@ -99,6 +102,28 @@ def update_cluster_status(cluster_id: str, status: str, at_iso: str) -> None:
         ExpressionAttributeNames={"#s": "status"},
         ExpressionAttributeValues={":s": status, ":t": at_iso},
     )
+
+
+# Activity: one row for everything PaaniAlert does about a cluster, shown on the dashboard.
+# kinds: level, advisory, all_clear, sns, escalated, status
+
+def log_activity(kind: str, cluster_id: str | None = None, **detail: Any) -> None:
+    """Never raises: a failed log row must not stop an alert from going out."""
+    item = {"activity_id": uuid.uuid4().hex, "at": now_iso(), "kind": kind,
+            **{k: v for k, v in detail.items() if v is not None}}
+    if cluster_id:
+        item["cluster_id"] = cluster_id
+    try:
+        _table("activity").put_item(Item=_to_dynamo(item))
+    except Exception:
+        log.exception("could not log %s activity for %s", kind, cluster_id)
+
+
+def recent_activity(since_iso: str) -> list[dict[str, Any]]:
+    """Newest first. A scan is fine at hackathon scale."""
+    items = _scan_all(_table("activity"), FilterExpression=Attr("at").gte(since_iso))
+    rows = [_from_dynamo(i) for i in items]
+    return sorted(rows, key=lambda r: (r["at"], r["activity_id"]), reverse=True)
 
 
 # Maintenance notices: {"geohash6", "text", "valid_until"}

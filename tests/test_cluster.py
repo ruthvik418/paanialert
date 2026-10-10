@@ -67,7 +67,7 @@ def check(aws, monkeypatch):
 
     sent, published = [], []
     monkeypatch.setattr(app, "send_whatsapp", lambda to, body, media_url=None: sent.append((to, body)))
-    monkeypatch.setattr(app, "publish", lambda arn, subject, message: published.append(subject))
+    monkeypatch.setattr(app, "publish", lambda arn, subject, message: published.append(subject) or True)
     app.sent, app.published = sent, published
     return app
 
@@ -190,3 +190,57 @@ def test_cluster_closed_without_a_status_time_stays_closed(check):
                            status="fixed", first_seen=result.first_seen, alert_at=iso(now())))
     assert check.run()["reopened"] == 0 and db.get_cluster(result.cluster_id).status == "fixed"
     assert check.sent == []
+
+
+def _kinds(rows):
+    return [(r["kind"], r.get("status") or r.get("level") or r.get("to")) for r in rows]
+
+
+def test_activity_log_records_alert_messages_escalation_and_reopen(check, monkeypatch):
+    from common import db
+    from common.timeutil import iso, now
+
+    def send(to, body, media_url=None):
+        if to.endswith("0002"):
+            raise RuntimeError("Twilio 63016: outside the 24-hour window")
+        check.sent.append((to, body))
+        return "SMok"
+
+    monkeypatch.setattr(check, "send_whatsapp", send)
+    _put_recent([report(i) for i in range(5)])
+    db.put_subscriber("sub1", "whatsapp:+919800000001", geohash6(*INDORE), "hi")
+    db.put_subscriber("sub2", "whatsapp:+919800000002", geohash6(*INDORE), "en")
+    check.run()
+
+    rows = db.recent_activity("2000-01-01T00:00:00Z")
+    cid = db.all_clusters()[0].cluster_id
+    assert all(r["cluster_id"] == cid for r in rows)
+    assert ("level", "alert") in _kinds(rows) and ("sns", "ward") in _kinds(rows)
+    advisories = {r["to"]: r for r in rows if r["kind"] == "advisory"}
+    assert advisories["+91 98•••••001"]["ok"] is True and advisories["+91 98•••••001"]["sid"] == "SMok"
+    assert advisories["+91 98•••••002"]["ok"] is False and "63016" in advisories["+91 98•••••002"]["error"]
+    assert "9800000001" not in repr(rows)                        # numbers are masked
+
+    monkeypatch.setattr(check, "ESCALATE_AFTER_MIN", 0)
+    check.run()
+    kinds = _kinds(db.recent_activity("2000-01-01T00:00:00Z"))
+    assert ("escalated", None) in kinds and ("sns", "health") in kinds
+
+    db.update_cluster_status(cid, "fixed", iso(now() - timedelta(minutes=30)))
+    late = report(50)
+    late.created_at = iso(now() - timedelta(minutes=10))
+    db.put_report(late)
+    check.run()
+    assert ("status", "reopened") in _kinds(db.recent_activity("2000-01-01T00:00:00Z"))
+
+
+def test_failed_activity_write_does_not_stop_alerts(check, monkeypatch):
+    from common import db
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("DynamoDB is down")
+
+    monkeypatch.setattr(db, "_to_dynamo", broken)               # every log_activity write now fails
+    _put_recent([report(i) for i in range(5)])
+    db.put_subscriber("sub1", "whatsapp:+919800000001", geohash6(*INDORE), "en")
+    assert check.run()["alerted"] == 1 and len(check.sent) == 1 and len(check.published) == 1

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MapView, { PLACES } from "./MapView.jsx";
 import {
-  NotFound, Unauthorised, getClusters, getContact, getPhotoUrl, getPublicClusters, getReports, saveKey, savedKey,
+  NotFound, Unauthorised, getActivity, getClusters, getContact, getPhotoUrl, getPublicClusters, getReports, saveKey, savedKey,
   setClusterStatus,
 } from "./api.js";
 import { ago, describeReport, levelLabel, sickLabel, statusLabel } from "./format.js";
@@ -92,7 +92,8 @@ function Dashboard({ dashboardKey, onSignOut }) {
   const [updated, setUpdated] = useState(null);
   const [error, setError] = useState(false);
   const [toast, setToast] = useState(null);       // {id, kind: "new"|"located"}
-  const [focus, setFocus] = useState(null);       // {key, id}
+  const [focus, setFocus] = useState(null);       // {key, id} for a report, {key, clusterId} for a cluster
+  const [activity, setActivity] = useState([]);
   const openedAt = useRef(new Date().toISOString().replace(/\.\d+Z$/, "Z"));
   const known = useRef(null);                     // report_id -> had a location last time
 
@@ -105,7 +106,11 @@ function Dashboard({ dashboardKey, onSignOut }) {
 
   const load = useCallback(async () => {
     try {
-      const [r, c] = await Promise.all([getReports(dashboardKey), getClusters(dashboardKey)]);
+      const [r, c, a] = await Promise.all([
+        getReports(dashboardKey), getClusters(dashboardKey),
+        getActivity(dashboardKey).catch((err) => { if (err instanceof Unauthorised) throw err; return null; }),
+      ]);
+      if (a) setActivity(a); // a failing activity feed shouldn't hide reports and clusters
       if (known.current === null) {
         known.current = new Map(r.map((x) => [x.report_id, x.lat != null]));
       } else {
@@ -159,6 +164,20 @@ function Dashboard({ dashboardKey, onSignOut }) {
     title: focus.key.endsWith("-located") ? t("locationAdded") : t("newReport"),
     lines: [describeReport(focusReport, t), focusReport.area, sickLabel(focusReport, t), ago(focusReport.created_at, t)],
   } : null;
+  const focusCluster = focus?.clusterId && clusters.find((c) => c.cluster_id === focus.clusterId);
+  const clusterFocus = focusCluster ? {
+    key: focus.key,
+    lon: focusCluster.centre_lon,
+    lat: focusCluster.centre_lat,
+    title: `${levelLabel(focusCluster.level, t)} · ${statusLabel(focusCluster.status, t)}`,
+    lines: [clusterName(focusCluster, reports, t), t("nReports", { n: focusCluster.report_count }),
+      t("nSickHouseholds", { n: focusCluster.sick_households })],
+  } : null;
+
+  function showCluster(id) {
+    setSelected({ type: "cluster", id });
+    setFocus({ key: `${id}-cluster-${Date.now()}`, clusterId: id });
+  }
 
   function flyToReport(r) {
     if (r.lat != null) setFocus({ key: `${r.report_id}-view-${Date.now()}`, id: r.report_id });
@@ -191,7 +210,7 @@ function Dashboard({ dashboardKey, onSignOut }) {
           reports={visibleReports}
           clusters={clusters}
           place={place}
-          focus={mapFocus}
+          focus={focus?.clusterId ? clusterFocus : mapFocus}
           label={t("mapLabel")}
           onSelectCluster={(id) => { setTab("clusters"); setSelected({ type: "cluster", id }); }}
           onSelectReport={(id) => { const r = reports.find((x) => x.report_id === id); setTab("reports"); if (r) showReport(r); }}
@@ -222,9 +241,13 @@ function Dashboard({ dashboardKey, onSignOut }) {
           <div className="tabs" role="tablist">
             <button role="tab" aria-selected={tab === "reports"} onClick={() => setTab("reports")}>{t("tabReports", { n: visibleReports.length })}</button>
             <button role="tab" aria-selected={tab === "clusters"} onClick={() => setTab("clusters")}>{t("tabClusters", { n: clusters.length })}</button>
+            <button role="tab" aria-selected={tab === "activity"} onClick={() => setTab("activity")}>{t("tabActivity", { n: activity.length })}</button>
           </div>
 
-          {tab === "clusters" ? (
+          {tab === "activity" ? (
+            <ActivityPanel rows={activity} clusters={clusters} reports={reports}
+              selectedCluster={selected?.type === "cluster" ? selected.id : null} onShowCluster={showCluster} />
+          ) : tab === "clusters" ? (
             <ul className="list">
               {sortedClusters.length === 0 && <Empty text={t("emptyClusters")} />}
               {sortedClusters.map((c) => (
@@ -270,6 +293,61 @@ function Stat({ label, value, tone }) {
 
 function Empty({ text }) {
   return <li className="empty">{text}</li>;
+}
+
+// A cluster has no place name of its own: use the area of its first loaded report, else its centre.
+function clusterName(c, reports, t) {
+  const ids = new Set(c.report_ids || []);
+  const withArea = reports.find((r) => ids.has(r.report_id) && r.area);
+  return withArea ? withArea.area : `${c.centre_lat.toFixed(3)}, ${c.centre_lon.toFixed(3)}`;
+}
+
+function activityText(a, t) {
+  const result = a.ok === false ? t("actFailed", { error: a.error || "" }) : a.ok ? t("actSent") : "";
+  switch (a.kind) {
+    case "level": return t("actLevel", { level: t(`level_${a.level}`), n: a.report_count ?? "?" });
+    case "advisory": return `${t("actAdvisory", { to: a.to })} · ${result}`;
+    case "all_clear": return `${t("actAllClear", { to: a.to })} · ${result}`;
+    case "sns": return `${t(a.to === "health" ? "actEmailHealth" : "actEmailWard")} · ${result}`;
+    case "escalated": return t("actEscalated");
+    case "status": return a.status === "reopened" ? t("actReopened") : t("actStatus", { status: t(`status_${a.status}`) });
+    default: return a.kind;
+  }
+}
+
+function ActivityPanel({ rows, clusters, reports, selectedCluster, onShowCluster }) {
+  const { t, lang } = useLang();
+  const [filter, setFilter] = useState("all");
+  const ids = [...new Set(rows.map((a) => a.cluster_id).filter(Boolean))];
+  const byId = new Map(clusters.map((c) => [c.cluster_id, c]));
+  const name = (id) => (byId.has(id) ? clusterName(byId.get(id), reports, t) : id);
+  const shown = filter === "all" ? rows : rows.filter((a) => a.cluster_id === filter);
+  const time = (iso) => new Date(iso).toLocaleTimeString(lang === "hi" ? "hi-IN" : "en-IN", { hour: "2-digit", minute: "2-digit" });
+
+  return (
+    <>
+      <label className="filter small">
+        <span>{t("actFilter")}</span>
+        <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+          <option value="all">{t("actAllClusters")}</option>
+          {ids.map((id) => <option key={id} value={id}>{name(id)}</option>)}
+        </select>
+      </label>
+      <ul className="list">
+        {shown.length === 0 && <Empty text={t("emptyActivity")} />}
+        {shown.map((a) => (
+          <li key={a.activity_id}>
+            <button type="button" disabled={!byId.has(a.cluster_id)}
+              className={`card activity ${a.ok === false ? "failed" : ""} ${selectedCluster && selectedCluster === a.cluster_id ? "selected" : ""}`}
+              onClick={() => onShowCluster(a.cluster_id)}>
+              <span className="row"><strong>{activityText(a, t)}</strong><span className="muted small num">{time(a.at)}</span></span>
+              <span className="muted small">{a.cluster_id ? name(a.cluster_id) : ""} · {ago(a.at, t)}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
 }
 
 function ReportSummary({ r, placeText }) {

@@ -206,3 +206,26 @@ def test_photo_link_lasts_five_minutes(aws):
     body = json.loads(handler(_api("GET /reports/{id}/photo", pathParameters={"id": with_photo.report_id}), None)["body"])
     assert "media/SM1.jpg" in body["url"] and "X-Amz-Expires=300" in body["url"] and body["expires_in"] == 300
     assert handler(_api("GET /reports/{id}/photo", pathParameters={"id": without.report_id}), None)["statusCode"] == 404
+
+
+def test_status_changes_and_all_clear_show_in_activity(aws, monkeypatch):
+    import cluster.app as cluster_app
+    from api.app import handler
+    from common import db
+
+    monkeypatch.setattr(cluster_app, "send_whatsapp", lambda to, body, media_url=None: "SMclear")
+    _alerted_cluster()
+    db.put_subscriber("s1", "whatsapp:+919800000001", "tsq4f2", "en")
+    _status("tsq4f2", "acknowledged")
+    _status("tsq4f2", "fixed")
+
+    assert handler(_api("GET /activity", key=None), None)["statusCode"] == 401
+    rows = json.loads(handler(_api("GET /activity"), None)["body"])["activity"]
+    assert [r["at"] for r in rows] == sorted((r["at"] for r in rows), reverse=True)
+    statuses = [r["status"] for r in rows if r["kind"] == "status"]
+    assert sorted(statuses) == ["acknowledged", "fixed"]
+    clear = [r for r in rows if r["kind"] == "all_clear"]
+    assert len(clear) == 1 and clear[0]["ok"] is True and clear[0]["to"] == "+91 98•••••001"
+
+    later = handler(_api("GET /activity", queryStringParameters={"since": "2999-01-01T00:00:00Z"}), None)
+    assert json.loads(later["body"])["activity"] == []

@@ -46,6 +46,8 @@ def handler(event, context):
         return contact(event)
     if route == "GET /reports/{id}/photo":
         return photo(event)
+    if route == "GET /activity":
+        return activity(event)
     return reply(404, {"error": f"No route {route}"})
 
 
@@ -95,6 +97,13 @@ def photo(event):
     return reply(200, {"url": url, "expires_in": PHOTO_URL_SECONDS})
 
 
+def activity(event):
+    """Everything PaaniAlert did (alerts, messages, emails, status changes), newest first."""
+    params = event.get("queryStringParameters") or {}
+    since = params.get("since") or hours_ago_iso(48)
+    return reply(200, {"activity": db.recent_activity(since), "since": since})
+
+
 def clusters():
     cutoff = hours_ago_iso(48)
     rows = [asdict(c) for c in db.all_clusters()
@@ -120,6 +129,7 @@ def set_status(event):
             return reply(404, {"error": "No such cluster"})
         raise
     log.info("cluster %s set to %s", cluster_id, status)
+    db.log_activity("status", cluster_id, status=status, was=before.status)
     all_clear = 0
     # Only people who were warned get the all-clear, and only once.
     if status == "fixed" and before.status != "fixed" and before.alert_at:
