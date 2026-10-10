@@ -22,6 +22,8 @@ ROOT = Path(__file__).resolve().parent.parent
 REQUIREMENTS = ROOT / "layer" / "requirements.txt"
 TARGET = ROOT / "build" / "layer" / "python"
 WINDOWS_ONLY = {"pywin32", "pywin32-ctypes", "pywinpty"}
+# Pure-Python packages published only as source (no wheel): built here instead. Never add a package with C code.
+SOURCE_ONLY = {"http-ece"}   # needed by pywebpush
 PLATFORMS = ["manylinux2014_x86_64", "manylinux_2_28_x86_64", "manylinux_2_17_x86_64"]
 
 
@@ -59,9 +61,13 @@ def main() -> None:
     remove(TARGET.parent)
     TARGET.mkdir(parents=True)
     platform_args = [arg for p in PLATFORMS for arg in ("--platform", p)]
+    is_source_only = lambda pin: pin.split("==")[0].lower().replace("_", "-") in SOURCE_ONLY
     pip("install", "--quiet", "--no-deps", "--only-binary=:all:", *platform_args,
         "--python-version", "3.12", "--implementation", "cp",
-        "--target", str(TARGET), *pins)
+        "--target", str(TARGET), *[p for p in pins if not is_source_only(p)])
+    source_only = [p for p in pins if is_source_only(p)]
+    if source_only:   # pure Python, so building it here gives the same files Lambda would get
+        pip("install", "--quiet", "--no-deps", "--target", str(TARGET), *source_only)
     (TARGET.parent / "pins.txt").write_text("\n".join(pins) + "\n", encoding="utf-8")
     size = sum(f.stat().st_size for f in TARGET.rglob("*") if f.is_file()) / 1_048_576
     print(f"Layer ready: {TARGET} ({size:.0f} MB unzipped, Lambda allows 250 MB)")
