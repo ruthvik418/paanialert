@@ -5,6 +5,10 @@ which is checked against SSM /paanialert/dashboard_key.
 
 Reports carry the reporter's WhatsApp name and a masked number. The full number
 is only returned by POST /reports/{id}/contact, and each call is audited.
+
+Officials' actions (report status, cluster status, issuing and lifting
+advisories) are each written to the Activity table with the caller's IP.
+GET /public/advisories lists active advisories for anyone (api/advisories.py).
 """
 from __future__ import annotations
 
@@ -17,6 +21,8 @@ from dataclasses import asdict
 import boto3
 from botocore.config import Config
 
+from agent.messages import clean_note
+from api import advisories
 from cluster.app import send_all_clear
 from common import db
 from common.config import REGION, secret
@@ -26,16 +32,23 @@ log = logging.getLogger()
 log.setLevel(logging.INFO)
 
 STATUSES = {"acknowledged", "fixed", "false_alarm"}
+REPORT_STATUSES = {"new", "reviewing", "resolved", "false_report"}
 PHOTO_URL_SECONDS = 300
 _s3 = None
 
 
 def handler(event, context):
     route = event.get("routeKey", "")
+    if route == "GET /public/advisories":
+        return reply(200, {"advisories": advisories.public_rows()})
     if route.startswith("GET /public/"):
         return public_clusters()
     if not authorised(event):
         return reply(401, {"error": "Missing or wrong x-dashboard-key"})
+    if route == "POST /reports/{id}/status":
+        return set_report_status(event)
+    if route.startswith("GET /advisories") or route.startswith("POST /advisories"):
+        return advisory_route(route, event)
     if route == "GET /reports":
         return reports(event)
     if route == "GET /clusters":
@@ -129,12 +142,67 @@ def set_status(event):
             return reply(404, {"error": "No such cluster"})
         raise
     log.info("cluster %s set to %s", cluster_id, status)
-    db.log_activity("status", cluster_id, status=status, was=before.status)
+    db.log_activity("status", cluster_id, status=status, was=before.status, ip=caller_ip(event))
     all_clear = 0
     # Only people who were warned get the all-clear, and only once.
     if status == "fixed" and before.status != "fixed" and before.alert_at:
         all_clear = send_all_clear(before)
     return reply(200, {"cluster_id": cluster_id, "status": status, "all_clear_sent": all_clear})
+
+
+def set_report_status(event):
+    """Officials' triage of one report. A false_report stops counting toward clusters at the next check."""
+    report_id = (event.get("pathParameters") or {}).get("id", "")
+    body = _body(event)
+    status = body.get("status") if body is not None else None
+    if status not in REPORT_STATUSES:
+        return reply(400, {"error": f"status must be one of {sorted(REPORT_STATUSES)}"})
+    note = body.get("note")
+    if note is not None and not isinstance(note, str):
+        return reply(400, {"error": "note must be text"})
+    note = clean_note(note)
+    before = db.get_report(report_id)
+    if before is None:
+        return reply(404, {"error": "No such report"})
+    at = now_iso()
+    db.update_report_status(report_id, status, note, at)
+    log.info("report %s set to %s", report_id, status)
+    db.log_activity("report_status", None, report_id=report_id, status=status, was=before.status, note=note,
+                    ip=caller_ip(event))
+    return reply(200, {"report_id": report_id, "status": status, "status_note": note, "status_at": at})
+
+
+def advisory_route(route: str, event):
+    try:
+        if route == "GET /advisories":
+            return reply(200, {"advisories": [asdict(a) for a in db.all_advisories()]})
+        if route == "POST /advisories/preview":
+            return reply(200, advisories.preview(_body(event) or {}))
+        if route == "POST /advisories":
+            body = _body(event)
+            if body is None:
+                return reply(400, {"error": "Send a JSON object"})
+            return reply(201, asdict(advisories.issue(body, caller_ip(event))))
+        if route == "POST /advisories/{id}/lift":
+            lifted = advisories.lift((event.get("pathParameters") or {}).get("id", ""), caller_ip(event))
+            if lifted is None:
+                return reply(409, {"error": "No active advisory with that id"})
+            return reply(200, asdict(lifted))
+    except advisories.Invalid as exc:
+        return reply(400, {"error": str(exc)})
+    return reply(404, {"error": f"No route {route}"})
+
+
+def caller_ip(event) -> str:
+    return ((event.get("requestContext") or {}).get("http") or {}).get("sourceIp") or "unknown"
+
+
+def _body(event) -> dict | None:
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except ValueError:
+        return None
+    return body if isinstance(body, dict) else None
 
 
 def public_clusters():

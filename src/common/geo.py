@@ -71,3 +71,34 @@ def neighbourhood(cell: str) -> list[str]:
             if n not in cells:
                 cells.append(n)
     return cells
+
+
+def distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in metres."""
+    from math import asin, cos, radians, sin, sqrt
+    p1, p2 = radians(lat1), radians(lat2)
+    a = sin((p2 - p1) / 2) ** 2 + cos(p1) * cos(p2) * sin(radians(lon2 - lon1) / 2) ** 2
+    return 2 * 6_371_000 * asin(sqrt(a))
+
+
+def cells_within(lat: float, lon: float, radius_m: float) -> list[str]:
+    """Every precision-6 cell that overlaps a circle, nearest first. Used to find who an advisory reaches."""
+    from math import cos, radians
+    _, _, dlat, dlon = decode(geohash6(lat, lon))
+    reach_lat = radius_m / 111_320 + 2 * dlat
+    reach_lon = radius_m / (111_320 * cos(radians(lat))) + 2 * dlon
+    found: dict[str, float] = {}
+    y = lat - reach_lat
+    while y <= lat + reach_lat:
+        x = lon - reach_lon
+        while x <= lon + reach_lon:
+            cell = geohash6(y, x)
+            if cell not in found:
+                clat, clon, hlat, hlon = decode(cell)
+                # The point of the cell's rectangle nearest the circle's centre.
+                near_lat = min(max(lat, clat - hlat), clat + hlat)
+                near_lon = min(max(lon, clon - hlon), clon + hlon)
+                found[cell] = distance_m(lat, lon, near_lat, near_lon)
+            x += dlon   # half a cell: no cell is skipped
+        y += dlat
+    return sorted((c for c, d in found.items() if d <= radius_m), key=lambda c: (found[c], c))

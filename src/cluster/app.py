@@ -12,6 +12,7 @@
   alerted again like a new outbreak.
 - Everything it does (level reached, each advisory, SNS, escalation, reopening)
   is written to the Activity table for the dashboard.
+- Reports officials marked false_report are left out before the rule runs.
 """
 from __future__ import annotations
 
@@ -47,7 +48,8 @@ def handler(event, context):
 
 def run() -> dict:
     current = now()
-    reports = db.recent_reports(hours_ago_iso(48))
+    # Reports officials marked false don't count; the rule itself stays pure and unaware of statuses.
+    reports = [r for r in db.recent_reports(hours_ago_iso(48)) if r.status != "false_report"]
     notices = active_notice_cells(iso(current))
     results = evaluate(reports, current, notices)
     existing = db.all_clusters()

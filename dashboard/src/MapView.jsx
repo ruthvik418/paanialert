@@ -40,7 +40,9 @@ function toGeoJSON(items, props) {
 // `focus` = {key, lon, lat, title, lines}: fly there and open a card. A new key re-triggers it.
 // Pick mode (the report page): `onPick({lat, lon})` on a tap or the "use map centre" button,
 // `pin` = {lat, lon, fly} shows a marker there (and flies to it when fly is true).
-export default function MapView({ reports = [], clusters = [], place = "all", label = "Map", focus, onSelectCluster, onSelectReport, onPick, pin, pickCentreLabel }) {
+// `circles` = [{id, lat, lon, radius_m, kind: "boil"|"do_not_use", draft}]: warning areas; a draft is dashed.
+// `fitCircle` = one of them to zoom to (when its id or radius changes).
+export default function MapView({ reports = [], clusters = [], circles = [], fitCircle, place = "all", label = "Map", focus, onSelectCluster, onSelectReport, onPick, pin, pickCentreLabel }) {
   const box = useRef(null);
   const [mapFailed, setMapFailed] = useState(false);
   const map = useRef(null);
@@ -48,8 +50,8 @@ export default function MapView({ reports = [], clusters = [], place = "all", la
   const ready = useRef(false);
   const fitted = useRef(false);
   const marker = useRef(null);
-  const latest = useRef({ reports, clusters, place, onSelectCluster, onSelectReport, onPick });
-  latest.current = { reports, clusters, place, onSelectCluster, onSelectReport, onPick };
+  const latest = useRef({ reports, clusters, circles, place, onSelectCluster, onSelectReport, onPick });
+  latest.current = { reports, clusters, circles, place, onSelectCluster, onSelectReport, onPick };
 
   useEffect(() => {
     const m = new maplibregl.Map({
@@ -65,6 +67,15 @@ export default function MapView({ reports = [], clusters = [], place = "all", la
       setMapFailed(false);
       m.addSource("clusters", { type: "geojson", data: toGeoJSON([], clusterProps) });
       m.addSource("reports", { type: "geojson", data: toGeoJSON([], reportProps) });
+      m.addSource("circles", { type: "geojson", data: circlesGeoJSON([]) });
+      m.addLayer({
+        id: "circles-fill", type: "fill", source: "circles",
+        paint: { "fill-color": WARNING_COLOUR, "fill-opacity": ["case", ["get", "draft"], 0.18, 0.1] },
+      });
+      m.addLayer({
+        id: "circles-line", type: "line", source: "circles",
+        paint: { "line-color": WARNING_COLOUR, "line-width": 2, "line-dasharray": ["case", ["get", "draft"], ["literal", [2, 2]], ["literal", [1, 0]]] },
+      });
       m.addLayer({
         id: "clusters", type: "circle", source: "clusters",
         paint: {
@@ -103,10 +114,21 @@ export default function MapView({ reports = [], clusters = [], place = "all", la
 
   useEffect(() => {
     if (!map.current || !ready.current) return;
-    push(map.current, { reports, clusters });
+    push(map.current, { reports, clusters, circles });
     // Zoom to the data the first time it arrives, so a report from anywhere is on screen.
     if (place === "all" && !fitted.current) fitted.current = fitAll(map.current, { reports, clusters });
-  }, [reports, clusters]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reports, clusters, circles]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const m = map.current;
+    if (!fitCircle || !m) return;
+    const fit = () => {
+      const ring = circleRing(fitCircle);
+      const bounds = ring.reduce((b, p) => b.extend(p), new maplibregl.LngLatBounds(ring[0], ring[0]));
+      m.fitBounds(bounds, { padding: 40, duration: 700 });
+    };
+    if (ready.current) fit(); else m.once("load", fit);
+  }, [fitCircle?.id, fitCircle?.radius_m]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!map.current || !ready.current) return;
@@ -186,7 +208,31 @@ function fitAll(m, { reports, clusters }) {
   return true;
 }
 
-function push(m, { reports, clusters }) {
+const WARNING_COLOUR = ["match", ["get", "kind"], "do_not_use", "#e3736b", "#ddb16b"];
+
+// A circle on the ground as a 64-point polygon ring ([lon, lat] pairs).
+function circleRing({ lat, lon, radius_m }) {
+  const ring = [];
+  for (let i = 0; i <= 64; i++) {
+    const a = (i / 64) * 2 * Math.PI;
+    ring.push([lon + (radius_m * Math.sin(a)) / (111320 * Math.cos((lat * Math.PI) / 180)), lat + (radius_m * Math.cos(a)) / 111320]);
+  }
+  return ring;
+}
+
+function circlesGeoJSON(circles) {
+  return {
+    type: "FeatureCollection",
+    features: circles.filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lon) && c.radius_m > 0).map((c) => ({
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: [circleRing(c)] },
+      properties: { kind: c.kind, draft: Boolean(c.draft) },
+    })),
+  };
+}
+
+function push(m, { reports, clusters, circles = [] }) {
+  m.getSource("circles")?.setData(circlesGeoJSON(circles));
   m.getSource("reports")?.setData(toGeoJSON(reports, reportProps));
   m.getSource("clusters")?.setData(toGeoJSON(clusters, clusterProps));
 }

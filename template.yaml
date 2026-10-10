@@ -70,6 +70,7 @@ Globals:
         AUDIT_TABLE: !Ref AuditLogTable
         ACTIVITY_TABLE: !Ref ActivityTable
         APP_QUOTA_TABLE: !Ref AppQuotaTable
+        ADVISORIES_TABLE: !Ref AdvisoriesTable
         MEDIA_BUCKET: !Ref MediaBucket
         TWILIO_WHATSAPP_FROM: !Ref TwilioWhatsAppFrom
   HttpApi:
@@ -206,6 +207,15 @@ Resources:
         - { AttributeName: activity_id, AttributeType: S }
       KeySchema:
         - { AttributeName: activity_id, KeyType: HASH }
+
+  AdvisoriesTable:   # officials' "boil water" / "don't use" warnings for an area, until lifted
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: advisory_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: advisory_id, KeyType: HASH }
 
   AppQuotaTable:   # reports per web-app device per day (UTC), so one device can't flood the map
     Type: AWS::DynamoDB::Table
@@ -451,10 +461,34 @@ Resources:
             - Effect: Allow
               Action: s3:GetObject          # presigned links to report photos (WhatsApp and web app)
               Resource: [!Sub "${MediaBucket.Arn}/media/*", !Sub "${MediaBucket.Arn}/app-uploads/*"]
+            - Effect: Allow
+              Action: dynamodb:UpdateItem   # officials' status on a report
+              Resource: !GetAtt ReportsTable.Arn
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Scan]   # advisories
+              Resource: !GetAtt AdvisoriesTable.Arn
       Events:
         Reports:
           Type: HttpApi
           Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /reports }
+        ReportStatus:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: "/reports/{id}/status" }
+        AdvisoriesList:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /advisories }
+        AdvisoryIssue:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: /advisories }
+        AdvisoryPreview:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: /advisories/preview }
+        AdvisoryLift:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: "/advisories/{id}/lift" }
+        PublicAdvisories:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /public/advisories }
         Clusters:
           Type: HttpApi
           Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /clusters }

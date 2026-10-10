@@ -24,7 +24,11 @@ async function call(path, { key, method = "GET", body } = {}) {
   });
   if (res.status === 401) throw new Unauthorised("Wrong dashboard key");
   if (res.status === 404) throw new NotFound(`${method} ${path}: not found`);
-  if (!res.ok) throw new Error(`${method} ${path} failed (${res.status})`);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    console.error(`[PaaniAlert] ${method} ${path} failed: HTTP ${res.status}: ${data.error || data.message || ""}`);
+    throw new Error(data.error ? `${data.error} (HTTP ${res.status})` : `${method} ${path} failed (${res.status})`);
+  }
   return res.json();
 }
 
@@ -119,3 +123,15 @@ export const sendAppReport = ({ text, lat, lon, lang, photoKey, requestId }) =>
     ...(photoKey ? { photo_key: photoKey } : {}) });
 
 export const newRequestId = newId;
+
+/* Officials' actions (dashboard key) */
+
+export const setReportStatus = (key, id, status, note) =>
+  call(`/reports/${encodeURIComponent(id)}/status`, { key, method: "POST", body: { status, ...(note ? { note } : {}) } });
+export const getAdvisories = (key) => call("/advisories", { key }).then((d) => d.advisories);
+// How many people a warning for this circle would reach: {total, whatsapp, app, cells}.
+export const previewAdvisory = (key, { lat, lon, radius_m }) =>
+  call("/advisories/preview", { key, method: "POST", body: { lat, lon, radius_m } });
+export const issueAdvisory = (key, body) => call("/advisories", { key, method: "POST", body });
+export const liftAdvisory = (key, id) => call(`/advisories/${encodeURIComponent(id)}/lift`, { key, method: "POST" });
+export const getPublicAdvisories = () => call("/public/advisories").then((d) => d.advisories);

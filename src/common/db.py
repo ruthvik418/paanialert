@@ -11,7 +11,7 @@ import boto3
 from boto3.dynamodb.conditions import Attr, Key
 
 from common.config import REGION, table
-from common.models import Cluster, Report, _from_dynamo, _to_dynamo, from_item, to_item
+from common.models import Advisory, Cluster, Report, _from_dynamo, _to_dynamo, from_item, to_item
 from common.timeutil import now_iso
 
 log = logging.getLogger(__name__)
@@ -54,6 +54,17 @@ def put_report(report: Report) -> None:
 def get_report(report_id: str) -> Report | None:
     item = _table("reports").get_item(Key={"report_id": report_id}).get("Item")
     return from_item(Report, item) if item else None
+
+
+def update_report_status(report_id: str, status: str, note: str | None, at_iso: str) -> None:
+    """Officials' status for one report; raises ConditionalCheckFailed if there's no such report."""
+    _table("reports").update_item(
+        Key={"report_id": report_id},
+        UpdateExpression="SET #s = :s, status_at = :t" + (", status_note = :n" if note else " REMOVE status_note"),
+        ConditionExpression="attribute_exists(report_id)",
+        ExpressionAttributeNames={"#s": "status"},
+        ExpressionAttributeValues={":s": status, ":t": at_iso, **({":n": note} if note else {})},
+    )
 
 
 def reports_in_cells(cells: list[str], since_iso: str) -> list[Report]:
@@ -253,6 +264,40 @@ def take_app_quota(device_hash: str, day: str, limit: int) -> bool:
             UpdateExpression="ADD sent :one SET expires_at = :exp",
             ConditionExpression="attribute_not_exists(sent) OR sent < :limit",
             ExpressionAttributeValues={":one": 1, ":limit": limit, ":exp": int(time.time()) + 2 * 24 * 3600},
+        )
+        return True
+    except Exception as exc:
+        if "ConditionalCheckFailed" in str(exc):
+            return False
+        raise
+
+
+# Advisories: warnings officials issue for an area (boil water / don't use), until lifted
+
+def put_advisory(advisory: Advisory) -> None:
+    _table("advisories").put_item(Item=to_item(advisory))
+
+
+def get_advisory(advisory_id: str) -> Advisory | None:
+    item = _table("advisories").get_item(Key={"advisory_id": advisory_id}).get("Item")
+    return from_item(Advisory, item) if item else None
+
+
+def all_advisories() -> list[Advisory]:
+    """Newest first. A scan is fine at hackathon scale."""
+    return sorted((from_item(Advisory, i) for i in _scan_all(_table("advisories"))),
+                  key=lambda a: a.created_at, reverse=True)
+
+
+def lift_advisory(advisory_id: str, at_iso: str) -> bool:
+    """Mark an active advisory lifted. False if it's missing or already lifted."""
+    try:
+        _table("advisories").update_item(
+            Key={"advisory_id": advisory_id},
+            UpdateExpression="SET #s = :lifted, lifted_at = :t",
+            ConditionExpression="#s = :active",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={":lifted": "lifted", ":active": "active", ":t": at_iso},
         )
         return True
     except Exception as exc:
