@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl/dist/maplibre-gl-csp";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-csp-worker.js?url";
 
@@ -9,8 +9,8 @@ maplibregl.setWorkerUrl(workerUrl);
 const KEY = import.meta.env.VITE_LOCATION_KEY;
 const REGION = import.meta.env.VITE_LOCATION_REGION || "ap-south-1";
 const STYLE = KEY
-  ? `https://maps.geo.${REGION}.amazonaws.com/v2/styles/Standard/descriptor?key=${KEY}&color-scheme=Light`
-  : "https://tiles.openfreemap.org/styles/liberty";
+  ? `https://maps.geo.${REGION}.amazonaws.com/v2/styles/Standard/descriptor?key=${KEY}&color-scheme=Dark`
+  : "https://tiles.openfreemap.org/styles/dark";
 
 // "all" fits the map to every report and cluster; with none yet it shows all of India.
 export const PLACES = {
@@ -19,7 +19,7 @@ export const PLACES = {
   delhi: { center: [77.209, 28.6139], zoom: 11 },
 };
 
-const LEVEL_COLOUR = ["match", ["get", "level"], "alert", "#c62828", "watch", "#e09100", "#7a8794"];
+const LEVEL_COLOUR = ["match", ["get", "level"], "alert", "#e3736b", "watch", "#ddb16b", "#7a8582"];
 
 // A cluster covers roughly 500 m; this keeps the circle that size on the ground at any zoom.
 const RADIUS_500M = ["interpolate", ["exponential", 2], ["zoom"], 10, 3.5, 18, 887];
@@ -28,7 +28,7 @@ function toGeoJSON(items, props) {
   return {
     type: "FeatureCollection",
     features: items
-      .filter((i) => props.lat(i) != null && props.lon(i) != null)
+      .filter((i) => Number.isFinite(props.lat(i)) && Number.isFinite(props.lon(i)) && Math.abs(props.lat(i)) <= 90 && Math.abs(props.lon(i)) <= 180)
       .map((i) => ({
         type: "Feature",
         geometry: { type: "Point", coordinates: [props.lon(i), props.lat(i)] },
@@ -40,12 +40,13 @@ function toGeoJSON(items, props) {
 // `focus` = {key, lon, lat, title, lines}: fly there and open a card. A new key re-triggers it.
 export default function MapView({ reports = [], clusters = [], place = "all", label = "Map", focus, onSelectCluster, onSelectReport }) {
   const box = useRef(null);
+  const [mapFailed, setMapFailed] = useState(false);
   const map = useRef(null);
   const popup = useRef(null);
   const ready = useRef(false);
   const fitted = useRef(false);
-  const latest = useRef({ reports, clusters, place });
-  latest.current = { reports, clusters, place };
+  const latest = useRef({ reports, clusters, place, onSelectCluster, onSelectReport });
+  latest.current = { reports, clusters, place, onSelectCluster, onSelectReport };
 
   useEffect(() => {
     const m = new maplibregl.Map({
@@ -56,7 +57,9 @@ export default function MapView({ reports = [], clusters = [], place = "all", la
       attributionControl: { compact: true },
     });
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    m.on("error", () => { if (!ready.current) setMapFailed(true); });
     m.on("load", () => {
+      setMapFailed(false);
       m.addSource("clusters", { type: "geojson", data: toGeoJSON([], clusterProps) });
       m.addSource("reports", { type: "geojson", data: toGeoJSON([], reportProps) });
       m.addLayer({
@@ -73,13 +76,13 @@ export default function MapView({ reports = [], clusters = [], place = "all", la
         id: "reports", type: "circle", source: "reports",
         paint: {
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 4, 16, 8],
-          "circle-color": "#1f4fd1",
-          "circle-stroke-color": ["case", ["get", "sick"], "#c62828", "#ffffff"],
+          "circle-color": "#56b7a7",
+          "circle-stroke-color": ["case", ["get", "sick"], "#e3736b", "#dce5e2"],
           "circle-stroke-width": ["case", ["get", "sick"], 3, 1.5],
         },
       });
-      m.on("click", "clusters", (e) => onSelectCluster?.(e.features[0].properties.cluster_id));
-      m.on("click", "reports", (e) => onSelectReport?.(e.features[0].properties.report_id));
+      m.on("click", "clusters", (e) => latest.current.onSelectCluster?.(e.features[0].properties.cluster_id));
+      m.on("click", "reports", (e) => latest.current.onSelectReport?.(e.features[0].properties.report_id));
       for (const id of ["clusters", "reports"]) {
         m.on("mouseenter", id, () => (m.getCanvas().style.cursor = "pointer"));
         m.on("mouseleave", id, () => (m.getCanvas().style.cursor = ""));
@@ -129,7 +132,7 @@ export default function MapView({ reports = [], clusters = [], place = "all", la
     if (ready.current) show(); else m.once("load", show);
   }, [focus?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <div ref={box} className="map" role="region" aria-label={label} />;
+  return <><div ref={box} className="map" role="region" aria-label={label} />{mapFailed && <div className="map-provider-error" role="status"><strong>Map tiles unavailable</strong><span>Use the incident list to review locations while the map service is unavailable.</span></div>}</>;
 }
 
 const reportProps = {
@@ -147,8 +150,8 @@ const clusterProps = {
 
 function fitAll(m, { reports, clusters }) {
   const points = [
-    ...reports.filter((r) => r.lat != null && r.lon != null).map((r) => [r.lon, r.lat]),
-    ...clusters.map((c) => [c.centre_lon ?? c.lon, c.centre_lat ?? c.lat]).filter(([x, y]) => x != null && y != null),
+    ...reports.filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lon) && Math.abs(r.lat) <= 90 && Math.abs(r.lon) <= 180).map((r) => [r.lon, r.lat]),
+    ...clusters.map((c) => [c.centre_lon ?? c.lon, c.centre_lat ?? c.lat]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) <= 180 && Math.abs(y) <= 90),
   ];
   if (points.length === 0) {
     m.flyTo({ center: PLACES.all.center, zoom: PLACES.all.zoom });

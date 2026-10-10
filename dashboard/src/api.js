@@ -11,6 +11,8 @@ export function saveKey(key) {
 export class Unauthorised extends Error {}
 export class NotFound extends Error {}
 
+export const getHealth = () => call("/health");
+
 async function call(path, { key, method = "GET", body } = {}) {
   const res = await fetch(API + path, {
     method,

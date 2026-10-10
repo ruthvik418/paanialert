@@ -16,6 +16,7 @@ node_modules/
 # Secrets and local settings
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 samconfig.local.toml
