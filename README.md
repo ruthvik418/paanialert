@@ -1,6 +1,6 @@
 # PaaniAlert
 
-Early warning for unsafe drinking water. Residents report bad water on WhatsApp, in Hindi or English, as text, a voice note or a photo. When several reports cluster in one area, PaaniAlert warns everyone nearby to boil their water and alerts the officials responsible, escalating if nobody acts.
+Early warning for unsafe drinking water. Residents report bad water on WhatsApp or from a web page on their phone, in Hindi or English, as text, a voice note or a photo. When several reports cluster in one area, PaaniAlert warns everyone nearby to boil their water and alerts the officials responsible, escalating if nobody acts.
 
 Built by Team Crystal Red for the WeMakeDevs × AWS Environmental Hacks, Oct 8–11, 2026 (Heat and Water track).
 
@@ -12,9 +12,10 @@ Disease surveillance reacts once patients reach hospitals. Complaints about the 
 
 ## How it works
 
-1. **Report.** A resident messages the WhatsApp bot. An AI agent pulls out the smell, colour, taste, how long it has been happening and whether anyone is sick, asks for a location pin, and replies with conservative advice: boil water, ORS, call 108 for blood in stool or dehydration.
+1. **Report.** A resident messages the WhatsApp bot, or opens the web report page (`/report`) with no sign-up. An AI agent pulls out the smell, colour, taste, how long it has been happening and whether anyone is sick, asks for a location pin, and replies with conservative advice: boil water, ORS, call 108 for blood in stool or dehydration.
 2. **Detect.** Every 15 minutes a cluster check looks at each area over the last 48 hours. 3+ distinct phones is a Watch; 5+ phones or 2+ sick households is an Alert.
-3. **Alert.** Subscribers nearby get a boil-water advisory as text and a Hindi voice note. The ward engineer is notified, and the district health officer if nobody acts within 24 hours.
+3. **Alert.** Subscribers nearby get a boil-water advisory as text and a Hindi voice note on WhatsApp, or a browser notification if they turned on "Warn me about my area" on the web page. The ward engineer is notified, and the district health officer if nobody acts within 24 hours.
+4. **Act.** Officials review reports on the dashboard, mark them resolved or false (false reports are left out of the cluster rule), and can issue a boil-water or do-not-use warning for a 500 m, 1 km or 2 km radius, then lift it with an all-clear.
 
 On normal days in Delhi, people can send a photo of a TDS meter and learn whether they need an RO purifier at all.
 
@@ -25,7 +26,8 @@ WhatsApp (Twilio) ─► API Gateway ─► Lambda (instant reply) ─► SQS �
                                                                                      ├─ Amazon Location Service
                                                                                      ├─ DynamoDB · S3
                                                                                      └─ Transcribe · Polly (Hindi voice)
-EventBridge (every 15 min) ─► Lambda cluster check ─► SNS (officials) + WhatsApp advisories (residents)
+Web report page (/report) ─► API Gateway ─► Lambda (same worker logic, photos to S3)
+EventBridge (every 15 min) ─► Lambda cluster check ─► SNS (officials) + WhatsApp and web push advisories (residents)
 Amplify dashboard ◄─ API Gateway ◄─ Lambda API
 Deployed with AWS SAM · logs in CloudWatch · region ap-south-1 (Mumbai)
 ```
@@ -82,9 +84,17 @@ Read the dashboard key with `aws ssm get-parameter --profile paani --name /paani
 |---|---|
 | Health check | `https://ayx7njx4g6.execute-api.ap-south-1.amazonaws.com/health` |
 | Twilio webhook (POST) | `https://ayx7njx4g6.execute-api.ap-south-1.amazonaws.com/whatsapp` |
-| Dashboard API | `https://ayx7njx4g6.execute-api.ap-south-1.amazonaws.com` (`/reports`, `/clusters`, `/public/clusters`) |
+| Dashboard API | `https://ayx7njx4g6.execute-api.ap-south-1.amazonaws.com` (`/reports`, `/clusters`, `/advisories`, `/public/clusters`, `/public/advisories`) |
 | Officials dashboard | `https://main.dy95ki8l9ef8x.amplifyapp.com` (needs the dashboard key) |
-| Public cluster page | `https://main.dy95ki8l9ef8x.amplifyapp.com/public` |
+| Web report page | `https://main.dy95ki8l9ef8x.amplifyapp.com/report` (no sign-up) |
+| Public warnings page | `https://main.dy95ki8l9ef8x.amplifyapp.com/public` |
+
+Everything is serverless (Lambda, API Gateway, DynamoDB on demand, SQS) and the dashboard is a static build on Amplify Hosting, so nothing needs to be kept running: the stack stays live until it is deleted. To keep it up:
+
+- Turn on termination protection so a stray `sam delete` can't remove it: `aws cloudformation update-termination-protection --enable-termination-protection --stack-name paanialert --profile paani --region ap-south-1`.
+- Keep the account's billing valid. The monthly cost budget only emails; it doesn't stop anything.
+- Deploy only from a tested `main`. A failed backend deploy rolls back by itself; a bad dashboard deploy can be undone by redeploying an earlier job in the Amplify console.
+- `/health` returns `{"ok": true}`; point any uptime monitor at it.
 
 ### Try it without five phones
 
@@ -99,7 +109,9 @@ The agent reads each message with Qwen3 235B (Qwen3 VL as backup, `ModelIds` par
 
 ### Web report app (`/report`)
 
-A second way to report, for people who haven't joined the Twilio sandbox: `https://<dashboard>/report` on a phone. One screen with the reply language (English, हिंदी, Hinglish), the message, a location (browser location or a tap on the map) and an optional photo. It calls the public `POST /app/report` (`src/api/app_report.py`), which runs the same `worker.handle()` as WhatsApp with `channel = "app"` and returns the bot's reply. Photos go straight to S3 under `app-uploads/` through `POST /app/photo-url` (presigned PUT, 5 minutes, JPEG or PNG, at most 5 MB). Both routes are throttled (1 request/s, burst 5, shared by everyone), and each device (a random id kept in the browser) can send 10 reports a day. Officials see app reports with a 📱 label. App users can't subscribe to alerts (there is no WhatsApp number to send them to).
+A second way to report, for people who haven't joined the Twilio sandbox: `https://<dashboard>/report` on a phone. One screen with the reply language (English, हिंदी, Hinglish), the message, a location (browser location or a tap on the map) and an optional photo. It calls the public `POST /app/report` (`src/api/app_report.py`), which runs the same `worker.handle()` as WhatsApp with `channel = "app"` and returns the bot's reply. Photos go straight to S3 under `app-uploads/` through `POST /app/photo-url` (presigned PUT, 5 minutes, JPEG or PNG, at most 5 MB). Both routes are throttled (1 request/s, burst 5, shared by everyone), and each device (a random id kept in the browser) can send 10 reports a day. Officials see app reports with a 📱 label.
+
+If the pin or the device's location is inside an active warning, the page shows a red banner at the top (it checks `GET /public/advisories` on open and every 60 seconds). The "Warn me about my area" switch subscribes the browser to web push for the area around its pin (`POST /app/subscribe`, service worker `/sw.js`, VAPID keys in SSM as `/paanialert/vapid_*`). Automatic Alerts, officials' warnings and all-clears are pushed to those browsers in their language; subscriptions the push service rejects are removed.
 
 ## Working together
 
