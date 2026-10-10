@@ -17,7 +17,7 @@ from datetime import timedelta
 
 import boto3
 
-from agent.messages import advisory_text, official_text
+from agent.messages import advisory_text, all_clear_text, official_text
 from cluster.rule import _parse, evaluate
 from common import db
 from common.models import Cluster
@@ -112,6 +112,18 @@ def send_alerts(c: Cluster) -> None:
         except Exception:
             # Usually Twilio's 24-hour window or missing credentials; one failure mustn't stop the rest.
             log.exception("advisory failed for one subscriber in %s", c.cluster_id)
+
+
+def send_all_clear(c: Cluster) -> int:
+    """WhatsApp all-clear to subscribers in the area, in their language. Returns how many were sent."""
+    sent = 0
+    for sub in db.subscribers_in_cells(c.cells):
+        try:
+            send_whatsapp(sub["phone"], all_clear_text(sub.get("lang", "en")))
+            sent += 1
+        except Exception:
+            log.exception("all-clear failed for one subscriber in %s", c.cluster_id)
+    return sent
 
 
 def escalate(c: Cluster) -> None:

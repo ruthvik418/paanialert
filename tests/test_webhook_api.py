@@ -86,3 +86,68 @@ def test_cluster_status_and_public_view(aws):
     missing = handler(_api("POST /clusters/{id}/status", pathParameters={"id": "nope"},
                            body=json.dumps({"status": "fixed"})), None)
     assert missing["statusCode"] == 404
+
+
+def _alerted_cluster(cluster_id="tsq4f2", alert_at="2026-10-08T11:00:00Z"):
+    from common import db
+    from common.models import Cluster
+
+    db.put_cluster(Cluster(
+        cluster_id=cluster_id, cells=[cluster_id], centre_lat=22.71698, centre_lon=75.85510,
+        level="alert", report_count=6, distinct_phones=5, sick_households=2, severity=23.5,
+        first_seen="2026-10-08T10:00:00Z", alert_at=alert_at,
+    ))
+
+
+def _status(cluster_id, status):
+    from api.app import handler
+
+    return handler(_api("POST /clusters/{id}/status", pathParameters={"id": cluster_id},
+                        body=json.dumps({"status": status})), None)
+
+
+def test_fixed_sends_all_clear_in_each_language(aws, monkeypatch):
+    import cluster.app as cluster_app
+    from common import db
+
+    sent = []
+
+    def fake_send(to, body, media_url=None):
+        if to.endswith("0002"):
+            raise RuntimeError("outside the 24-hour window")
+        sent.append((to, body))
+        return "SM"
+
+    monkeypatch.setattr(cluster_app, "send_whatsapp", fake_send)
+    _alerted_cluster()
+    db.put_subscriber("s1", "whatsapp:+919800000001", "tsq4f2", "hi")
+    db.put_subscriber("s2", "whatsapp:+919800000002", "tsq4f2", "en")   # this one fails
+    db.put_subscriber("s3", "whatsapp:+919800000003", "tsq4f2", "en")
+    db.put_subscriber("s4", "whatsapp:+919800000004", "zzzzzz", "en")   # somewhere else
+
+    resp = _status("tsq4f2", "fixed")
+    assert json.loads(resp["body"])["all_clear_sent"] == 2
+    by_phone = dict(sent)
+    assert set(by_phone) == {"whatsapp:+919800000001", "whatsapp:+919800000003"}
+    assert "ठीक" in by_phone["whatsapp:+919800000001"] and "fixed" in by_phone["whatsapp:+919800000003"]
+
+    _status("tsq4f2", "fixed")                                         # marking it fixed again
+    assert len(sent) == 2
+
+
+def test_no_all_clear_unless_fixed_and_warned(aws, monkeypatch):
+    import cluster.app as cluster_app
+    from common import db
+
+    sent = []
+    monkeypatch.setattr(cluster_app, "send_whatsapp", lambda to, body, media_url=None: sent.append(to))
+    _alerted_cluster("aaaaaa")
+    _alerted_cluster("bbbbbb")
+    _alerted_cluster("cccccc", alert_at=None)                          # only reached Watch: nobody warned
+    for cell in ("aaaaaa", "bbbbbb", "cccccc"):
+        db.put_subscriber(f"s-{cell}", f"whatsapp:+91980000{cell[:4]}", cell, "en")
+
+    _status("aaaaaa", "acknowledged")
+    _status("bbbbbb", "false_alarm")
+    _status("cccccc", "fixed")
+    assert sent == []

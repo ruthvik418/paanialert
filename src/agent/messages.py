@@ -1,4 +1,4 @@
-"""Alert text sent to residents. Owner: B. A's cluster check calls advisory_text()."""
+"""Alert text sent to residents. Owner: B. A's cluster check calls advisory_text(), the API all_clear_text()."""
 from __future__ import annotations
 
 from agent.prompts import ADVICE
@@ -14,12 +14,28 @@ def advisory_text(report_count: int, sick_households: int, lang: str) -> str:
         "hinglish": f"⚠️ PaaniAlert: pichhle 2 din mein aapke paas kharab paani ki {report_count} shikayatein{sick_hinglish}.",
     }
     lang = lang if lang in lines else "en"
-    stop = {
-        "en": "Reply STOP to stop these alerts.",
-        "hi": "ये चेतावनियाँ बंद करने के लिए STOP लिखें।",
-        "hinglish": "Ye alerts band karne ke liye STOP likhein.",
-    }[lang]
-    return f"{lines[lang]}\n\n{ADVICE[lang]}\n\n{stop}"
+    return f"{lines[lang]}\n\n{ADVICE[lang]}\n\n{STOP[lang]}"
+
+
+def all_clear_text(lang: str) -> str:
+    """Sent when officials mark a cluster fixed, to subscribers in its area who got the advisory."""
+    lines = {
+        "en": "✅ PaaniAlert: officials have marked the water problem near you as fixed. "
+              "If your water still looks, smells or tastes bad, message us here again.",
+        "hi": "✅ PaaniAlert: अधिकारियों ने आपके पास पानी की समस्या को ठीक बताया है। "
+              "अगर पानी अब भी गंदा दिखे, बदबू आए या स्वाद खराब लगे, तो हमें यहाँ फिर से बताएं।",
+        "hinglish": "✅ PaaniAlert: officials ne aapke paas paani ki problem ko theek bataya hai. "
+                    "Agar paani ab bhi ganda dikhe, badboo aaye ya swaad kharab lage, to humein yahan phir se batayein.",
+    }
+    lang = lang if lang in lines else "en"
+    return f"{lines[lang]}\n\n{STOP[lang]}"
+
+
+STOP = {
+    "en": "Reply STOP to stop these alerts.",
+    "hi": "ये चेतावनियाँ बंद करने के लिए STOP लिखें।",
+    "hinglish": "Ye alerts band karne ke liye STOP likhein.",
+}
 
 
 def official_text(cluster_id: str, level: str, report_count: int, phones: int, sick: int,

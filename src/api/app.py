@@ -10,6 +10,7 @@ import json
 import logging
 from dataclasses import asdict
 
+from cluster.app import send_all_clear
 from common import db
 from common.config import secret
 from common.timeutil import hours_ago_iso, now_iso
@@ -67,6 +68,9 @@ def set_status(event):
         status = None
     if status not in STATUSES:
         return reply(400, {"error": f"status must be one of {sorted(STATUSES)}"})
+    before = db.get_cluster(cluster_id)
+    if before is None:
+        return reply(404, {"error": "No such cluster"})
     try:
         db.update_cluster_status(cluster_id, status, now_iso())
     except Exception as exc:
@@ -74,7 +78,11 @@ def set_status(event):
             return reply(404, {"error": "No such cluster"})
         raise
     log.info("cluster %s set to %s", cluster_id, status)
-    return reply(200, {"cluster_id": cluster_id, "status": status})
+    all_clear = 0
+    # Only people who were warned get the all-clear, and only once.
+    if status == "fixed" and before.status != "fixed" and before.alert_at:
+        all_clear = send_all_clear(before)
+    return reply(200, {"cluster_id": cluster_id, "status": status, "all_clear_sent": all_clear})
 
 
 def public_clusters():

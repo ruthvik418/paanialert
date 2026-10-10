@@ -269,6 +269,7 @@ Resources:
       Policies:
         - DynamoDBReadPolicy: { TableName: !Ref ReportsTable }
         - DynamoDBCrudPolicy: { TableName: !Ref ClustersTable }
+        - DynamoDBReadPolicy: { TableName: !Ref SubscribersTable }   # all-clear when a cluster is fixed
         - SSMParameterReadPolicy: { ParameterName: paanialert/* }
       Events:
         Reports:
