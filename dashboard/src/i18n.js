@@ -146,7 +146,8 @@ const STRINGS = {
     rpAnother: "Send Another Report",
     rpLimit: "This phone has already sent 10 reports today. Try again tomorrow, or report on WhatsApp.",
     rpOffline: "Couldn't reach PaaniAlert. Check your connection and send again.",
-    rpFailed: "That didn't go through ({error}). Check the details and send again.",
+    rpFailed: "That didn't go through. Check the details and send again.",
+    rpTimeout: "PaaniAlert took too long to answer. Send again; it won't be saved twice.",
     rpPrivacy: "We don't ask for your name or number. Your message, photo and location are shared with water officials.",
     rpSeeWarnings: "See warnings near you",
 
@@ -305,7 +306,8 @@ const STRINGS = {
     rpAnother: "एक और शिकायत भेजें",
     rpLimit: "इस फ़ोन से आज 10 शिकायतें भेजी जा चुकी हैं। कल फिर कोशिश करें, या WhatsApp पर शिकायत करें।",
     rpOffline: "PaaniAlert तक नहीं पहुँच पाए। इंटरनेट देखें और फिर भेजें।",
-    rpFailed: "शिकायत नहीं गई ({error})। जानकारी देखकर फिर भेजें।",
+    rpFailed: "शिकायत नहीं गई। जानकारी देखकर फिर भेजें।",
+    rpTimeout: "PaaniAlert ने जवाब देने में बहुत देर की। फिर भेजें, शिकायत दो बार दर्ज नहीं होगी।",
     rpPrivacy: "हम आपका नाम या नंबर नहीं पूछते। आपका संदेश, फ़ोटो और लोकेशन पानी विभाग के अधिकारियों को दिखते हैं।",
     rpSeeWarnings: "आपके पास की चेतावनियाँ देखें",
 

@@ -108,9 +108,14 @@ export default function ReportPage() {
       const res = await sendAppReport({ text: clean, lat: pin.lat, lon: pin.lon, lang: replyLang, photoKey, requestId: requestId.current });
       setResult(res);
     } catch (err) {
+      // The status and details are in the console (api.js); people get a plain message.
       if (err instanceof ApiError && err.status === 429) setSendError(t("rpLimit"));
-      else if (err instanceof ApiError && err.status === 0) setSendError(t("rpOffline"));
-      else setSendError(t("rpFailed", { error: err.message }));
+      else if (err instanceof ApiError && err.kind === "timeout") setSendError(t("rpTimeout"));
+      else if (err instanceof ApiError && err.kind === "network") setSendError(t("rpOffline"));
+      else {
+        if (!(err instanceof ApiError)) console.error("[PaaniAlert] sending the report failed:", err);
+        setSendError(t("rpFailed"));
+      }
     } finally {
       setSending(false);
     }

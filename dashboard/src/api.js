@@ -64,32 +64,52 @@ export function deviceId() {
   }
 }
 
+// status: the HTTP status, or 0 when no response came back. kind: "http", "network" or "timeout".
 export class ApiError extends Error {
-  constructor(status, message) { super(message); this.status = status; }
+  constructor(status, message, kind = "http") { super(message); this.status = status; this.kind = kind; }
 }
 
-async function post(path, body) {
-  let res;
-  try {
-    res = await fetch(API + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  } catch {
-    throw new ApiError(0, "offline");
-  }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error || `failed (${res.status})`);
-  return data;
+// The API gives up after 30 s (HTTP API limit); wait a little longer so its own error wins.
+const TIMEOUT_MS = 35000;
+
+// For whoever debugs: the details go to the console, never on screen.
+function logFailure(method, url, err, started) {
+  const where = url.split("?")[0];   // a presigned S3 URL's query string is a credential
+  const ms = Math.round(performance.now() - started);
+  console.error(`[PaaniAlert] ${method} ${where} failed: ${err.kind === "http" ? `HTTP ${err.status}` : err.kind} after ${ms} ms: ${err.message}`);
 }
+
+async function send(method, url, init) {
+  const started = performance.now();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    let res;
+    try {
+      res = await fetch(url, { ...init, method, signal: ctrl.signal });
+    } catch {
+      throw ctrl.signal.aborted
+        ? new ApiError(0, `no response in ${TIMEOUT_MS / 1000} s`, "timeout")
+        : new ApiError(0, "network error or CORS", "network");
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, data.error || data.message || res.statusText || "error");
+    return data;
+  } catch (err) {
+    logFailure(method, url, err, started);
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const post = (path, body) =>
+  send("POST", API + path, { headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
 // Upload a photo straight to S3 through a 5-minute presigned PUT; returns its photo_key.
 export async function uploadPhoto(blob) {
   const { url, photo_key } = await post("/app/photo-url", { device_id: deviceId(), content_type: blob.type, size: blob.size });
-  let res;
-  try {
-    res = await fetch(url, { method: "PUT", headers: { "content-type": blob.type }, body: blob });
-  } catch {
-    throw new ApiError(0, "offline");
-  }
-  if (!res.ok) throw new ApiError(res.status, `photo upload failed (${res.status})`);
+  await send("PUT", url, { headers: { "content-type": blob.type }, body: blob });
   return photo_key;
 }
 
