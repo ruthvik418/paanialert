@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { CircleNotch, Users, Warning, WarningCircle } from "@phosphor-icons/react";
 import { issueAdvisory, previewAdvisory } from "./api.js";
+import { WarningBadge } from "./StatusBits.jsx";
 
 export const KIND_LABEL = { boil: "Boil water before drinking", do_not_use: "Don't use tap water" };
 const RADII = [[500, "500 m"], [1000, "1 km"], [2000, "2 km"]];
@@ -85,7 +87,13 @@ export function WarningDialog({ dashboardKey, target, onClose, onDraft, onSent }
 
   return <div className="warning-layer" role="presentation">
     <section className="warning-dialog" role="dialog" aria-modal="true" aria-labelledby="warning-title" ref={box}>
-      <p className="eyebrow">Issue warning · {target.label}</p>
+      <div className="dialog-head">
+        <p className="dialog-kicker"><Warning size={16} weight="bold" aria-hidden="true" />Issue warning · {target.label}</p>
+        <ol className="dialog-steps" aria-label="Steps">
+          <li aria-current={step === "choose" ? "step" : undefined}>Choose</li>
+          <li aria-current={step === "confirm" ? "step" : undefined}>Confirm</li>
+        </ol>
+      </div>
       {step === "choose" ? <>
         <h2 id="warning-title">Warn people near this location</h2>
         <fieldset className="choice-group"><legend>Warning</legend>
@@ -98,14 +106,14 @@ export function WarningDialog({ dashboardKey, target, onClose, onDraft, onSent }
         <textarea id="warning-note" name="note" rows={2} maxLength={NOTE_MAX} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Tanker water at the ward office from 4 pm…" />
         <p className="muted small">{note.length}/{NOTE_MAX} · Links are removed before sending.</p>
         <p className="warning-reach" aria-live="polite">
-          {count.state === "loading" && "Counting people in this area…"}
-          {count.state === "error" && "Couldn't count recipients. You can still review the warning."}
-          {reach && <><strong>This will warn {reach}</strong><span className="muted">{breakdown}</span></>}
+          {count.state === "loading" && <><CircleNotch className="spin" size={18} weight="bold" aria-hidden="true" />Counting people in this area…</>}
+          {count.state === "error" && <><WarningCircle size={18} weight="fill" aria-hidden="true" />Couldn't count recipients. You can still review the warning.</>}
+          {reach && <><Users size={18} weight="bold" aria-hidden="true" /><span><strong>This will warn {reach}</strong><span className="muted">{breakdown}</span></span></>}
         </p>
         <div className="actions"><button type="button" onClick={() => setStep("confirm")}>Review Warning…</button><button type="button" className="ghost" onClick={close}>Cancel</button></div>
       </> : <>
         <h2 id="warning-title">Send “{KIND_LABEL[kind]}” to {reach || "everyone in this area"}?</h2>
-        <dl className="detail compact-detail"><dt>Area</dt><dd>{radiusLabel(radius)} around {target.label}</dd>{note.trim() && <><dt>Note</dt><dd>{note.trim()}</dd></>}</dl>
+        <dl className="detail compact-detail confirm-summary"><dt>Area</dt><dd>{radiusLabel(radius)} around {target.label}</dd>{note.trim() && <><dt>Note</dt><dd>{note.trim()}</dd></>}</dl>
         <p>Messages go out at once, in each person's language, and can't be recalled. Lifting the warning later sends an all-clear to the same people.</p>
         {error && <p className="inline-warning" role="alert">{error}</p>}
         <div className="actions"><button type="button" className="danger-action" disabled={sending} onClick={send}>{sending ? "Sending…" : `Send Warning${reach ? ` to ${reach}` : ""}`}</button><button type="button" className="ghost" disabled={sending} onClick={() => setStep("choose")}>Back</button></div>
@@ -123,7 +131,7 @@ export function WarningList({ advisories, onLift, liftingId, onShow }) {
     const active = a.status === "active";
     return <li key={a.advisory_id} className={`queue-item warning-item ${a.kind} ${active ? "" : "lifted"}`}>
       <button type="button" className="queue-select" onClick={() => onShow(a)}>
-        <span className="item-top"><span className={`severity ${a.kind === "do_not_use" ? "alert" : "watch"}`}>{KIND_LABEL[a.kind]}</span><span className="status">{active ? "Active" : "Lifted"}</span></span>
+        <span className="item-top"><WarningBadge kind={a.kind} lifted={!active}>{KIND_LABEL[a.kind]}</WarningBadge><span className={`status ${active ? "active-warning" : "fixed"}`}>{active ? "Active" : "Lifted"}</span></span>
         <span className="item-title">{radiusLabel(a.radius_m)} around {a.lat.toFixed(4)}, {a.lon.toFixed(4)}</span>
         <span>Warned {peopleLabel(people)} · {new Date(a.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</span>
         {a.note && <span>“{a.note}”</span>}
