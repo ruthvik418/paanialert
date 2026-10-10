@@ -110,14 +110,29 @@ const SHOTS = [
   { name: "report-sent", path: "/report", sizes: ["phone", "desktop"], async act(page) {
     // Fill in the form the same way in the old and new design: words, then the map centre, then Send.
     const box = page.locator("textarea").first();
-    if (await page.locator(".report-tile").count()) {
-      await page.locator(".report-tile").first().click();
+    if (await page.locator(".rs-tile").count()) {
+      // Tap-to-report: yellow water, bad smell, 2 people sick.
+      await page.locator(".rs-tile").nth(1).click();
+      await page.locator(".rs-swatch").first().click();
+      await page.locator(".rs-tile").nth(0).click();
+      await page.locator(".rs-tile").nth(3).click();
+      await page.locator(".rs-stepper button").nth(1).click();
     } else {
       await box.fill("Nal ka paani peela aa raha hai, badboo hai, 2 din se. 2 log bimar.");
     }
-    await page.locator(".map-pick-centre").dispatchEvent("click");   // before the redesign the attribution box covered it at 360 px
+    // Before the redesign the attribution box covered this button at 360 px, so a real tap failed.
+    if (await page.locator(".rs-tile").count()) await page.locator(".map-pick-centre").click();
+    else await page.locator(".map-pick-centre").dispatchEvent("click");
     await page.locator("button[type=submit]").click();
     await page.waitForTimeout(800);
+  } },
+  { name: "report-tiles", path: "/report", sizes: ["phone"], after: true, async act(page) {
+    await page.locator(".rs-tile").nth(1).click();
+    await page.locator(".rs-swatch").first().click();
+    await page.locator(".rs-tile").nth(0).click();
+    await page.locator(".rs-tile").nth(3).click();
+    await page.locator(".rs-stepper button").nth(1).click();
+    await page.locator(".map-pick-centre").click();
   } },
   { name: "public", path: "/public" },
   { name: "dashboard", path: "/" },
@@ -140,7 +155,8 @@ const SHOTS = [
 
 mkdirSync(OUT, { recursive: true });
 const browser = await chromium.launch({ channel: "chrome" });
-for (const shot of SHOTS) {
+const redesigned = !process.argv.includes("--before");
+for (const shot of SHOTS.filter((s) => redesigned || !s.after)) {
   for (const size of shot.sizes || ["phone", "desktop"]) {
     const context = await browser.newContext({ viewport: SIZES[size], deviceScaleFactor: 1, serviceWorkers: "block",
       geolocation: { latitude: 22.7196, longitude: 75.8577 }, permissions: [], locale: LANG === "hi" ? "hi-IN" : "en-IN" });
@@ -159,7 +175,7 @@ for (const shot of SHOTS) {
       return body ? route.fulfill({ json: body }) : route.fulfill({ status: 404, json: { error: "not in fixtures" } });
     });
     await page.goto(BASE + shot.path, { waitUntil: "load" });
-    await page.waitForTimeout(3500);   // map tiles and the fit-to-data animation
+    await page.waitForTimeout(6000);   // map tiles and the fit-to-data animation
     if (shot.act) await shot.act(page);
     const file = join(OUT, `${shot.name}-${size === "phone" ? "360" : "1440"}${LANG === "en" ? "" : `-${LANG}`}.png`);
     await page.screenshot({ path: file, fullPage: size === "phone" && !shot.name.startsWith("dashboard-") });

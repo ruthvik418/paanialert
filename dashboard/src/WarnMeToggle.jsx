@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Bell, BellRinging } from "@phosphor-icons/react";
 import { getPushKey, subscribePush, unsubscribePush } from "./api.js";
 import { useLang } from "./i18n.js";
 import { lastPin } from "./WarningBanner.jsx";
@@ -19,7 +20,7 @@ async function currentSubscription() {
  * "Warn me about my area": a push subscription for the area around the pin (or the last pin used).
  * Official warnings, automatic Alerts and all-clears for that area arrive as notifications.
  */
-export default function WarnMeToggle({ pin, replyLang }) {
+export default function WarnMeToggle({ pin, replyLang, intro }) {
   const { t } = useLang();
   const [on, setOn] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -77,17 +78,19 @@ export default function WarnMeToggle({ pin, replyLang }) {
     }
   }
 
+  const Icon = on ? BellRinging : Bell;
   if (!supported()) {
-    return <section className="warn-me"><h2>{t("wmTitle")}</h2><p className="report-hint">{t("wmUnsupported")}</p></section>;
+    return <section className="rs-warnme"><h2 className="rs-warnme-title"><Bell size={26} weight="bold" aria-hidden="true" />{t("wmTitle")}</h2><p className="rs-hint">{t("wmUnsupported")}</p></section>;
   }
   return (
-    <section className="warn-me" aria-labelledby="warn-me-label">
-      <div className="warn-me-row">
-        <label id="warn-me-label" htmlFor="warn-me" className="warn-me-label">{t("wmTitle")}</label>
-        <input id="warn-me" type="checkbox" role="switch" className="switch" checked={on} disabled={busy || (!on && !place)}
+    <section className={`rs-warnme${on ? " on" : ""}`} aria-labelledby="warn-me-label">
+      {intro && <p className="rs-warnme-intro">{intro}</p>}
+      <div className="rs-warnme-row">
+        <label id="warn-me-label" htmlFor="warn-me" className="rs-warnme-title"><Icon size={26} weight={on ? "fill" : "bold"} aria-hidden="true" />{t("wmTitle")}</label>
+        <input id="warn-me" type="checkbox" role="switch" className="rs-switch" checked={on} disabled={busy || (!on && !place)}
           aria-describedby="warn-me-help" onChange={toggle} />
       </div>
-      <p className="report-hint" id="warn-me-help" aria-live="polite">
+      <p className={`rs-hint${note ? " rs-hint-error" : ""}`} id="warn-me-help" aria-live="polite">
         {busy ? t(on ? "wmTurningOff" : "wmTurningOn") : note || (on ? t("wmOn") : place ? t("wmHelp") : t("wmNeedPlace"))}
       </p>
     </section>
