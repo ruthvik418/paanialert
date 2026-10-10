@@ -1,12 +1,16 @@
 """Runs the Strands agent on Amazon Bedrock for one incoming message. Owner: B.
 
-Models are tried in MODEL_IDS order (comma-separated). If none answers, the
-caller falls back to keyword extraction (agent/fallback.py).
+Models are tried in MODEL_IDS order (comma-separated). A model counts as failed,
+and the next one is tried, if it errors, makes a malformed save_report call, or
+answers a complaint without saving it. If every model fails, the caller falls
+back to keyword extraction (agent/fallback.py), so a complaint is never lost.
 
-If Bedrock is blocked on our account, set BEDROCK_ROLE_ARN to a role in a
-teammate's account that allows bedrock:InvokeModel and trusts our account
-(see docs/bedrock-access.md). Only the model calls go there; everything else
-stays in our account.
+MODEL_ENDPOINT picks how models are called:
+- mantle (default): the OpenAI-compatible bedrock-mantle endpoint in
+  MANTLE_REGION, with the Bedrock API key in SSM /paanialert/bedrock_api_key.
+  This is what the Bedrock console playground uses, and it works on our account.
+- runtime: bedrock-runtime Converse in BEDROCK_REGION, optionally through
+  BEDROCK_ROLE_ARN in another account (see docs/bedrock-access.md).
 """
 from __future__ import annotations
 
@@ -18,23 +22,35 @@ import time
 import boto3
 from strands import Agent, tool
 from strands.models import BedrockModel
+from strands.models.openai import OpenAIModel
 
+from agent import fallback
 from agent.prompts import ADVICE, LANGUAGES, SYSTEM_PROMPT
 from agent.reports import TurnContext, save_extracted
+from common.config import secret
 
 log = logging.getLogger(__name__)
 
-# Llama 4 Maverick: officially supports Hindi, reads images (water photos, TDS meters), fast.
-# DeepSeek V3.1: stronger text reasoning, no images. Override with the ModelIds stack parameter.
-DEFAULT_MODEL_IDS = "us.meta.llama4-maverick-17b-instruct-v1:0,deepseek.v3-v1:0"
+MODEL_ENDPOINT = os.environ.get("MODEL_ENDPOINT", "mantle").strip().lower()
+# Mantle: DeepSeek V3.1 was the fastest to pass our Hindi/Hinglish tool-call probe, then Qwen3 235B.
+# Qwen3 VL also reads images, for when photos are sent to the model. Override with the ModelIds stack parameter.
+DEFAULT_MODEL_IDS = {
+    "mantle": "deepseek.v3.1,qwen.qwen3-235b-a22b-2507,qwen.qwen3-vl-235b-a22b-instruct",
+    "runtime": "us.meta.llama4-maverick-17b-instruct-v1:0,deepseek.v3-v1:0",
+}[MODEL_ENDPOINT]
 MODEL_IDS = [m.strip() for m in os.environ.get("MODEL_IDS", DEFAULT_MODEL_IDS).split(",") if m.strip()]
 MODEL_ID = MODEL_IDS[0]
+MANTLE_REGION = os.environ.get("MANTLE_REGION", "ap-south-1")
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-west-2")
 BEDROCK_ROLE_ARN = os.environ.get("BEDROCK_ROLE_ARN", "")
 # Open models on Bedrock handle tool calls more reliably without streaming.
 STREAMING = os.environ.get("BEDROCK_STREAMING", "false").lower() == "true"
 
 _UNSAFE_WORD = re.compile(r"\b(safe|surakshit)\b|सुरक्षित", re.I)
+# A reply that tells the person their report is in, e.g. "Your report is saved" / "रिपोर्ट दर्ज हो गई".
+_CLAIMS_SAVED = re.compile(
+    r"\b(saved|recorded|registered|logged|save (ho|kar)\w*|darj|note kar\w*)\b|दर्ज|सेव|नोट कर", re.I
+)
 _session_cache: dict[str, object] = {}
 
 
@@ -61,12 +77,20 @@ def _boto_session() -> boto3.Session:
     return session
 
 
-def model(model_id: str) -> BedrockModel:
+def model(model_id: str) -> BedrockModel | OpenAIModel:
+    if MODEL_ENDPOINT == "mantle":
+        # No retries and a short timeout: a turn is ~2 requests per model, and three models must
+        # fit in the worker's 120 s. A slow model is skipped for the next one instead.
+        return OpenAIModel(
+            client_args={"api_key": secret("bedrock_api_key"), "timeout": 15, "max_retries": 0,
+                         "base_url": f"https://bedrock-mantle.{MANTLE_REGION}.api.aws/v1"},
+            model_id=model_id, stream=STREAMING, params={"temperature": 0.2, "max_tokens": 600},
+        )
     return BedrockModel(boto_session=_boto_session(), model_id=model_id, temperature=0.2,
                         max_tokens=600, streaming=STREAMING)
 
 
-def _tools(ctx: TurnContext):
+def _tools(ctx: TurnContext, model_id: str, problems: list[str]):
     @tool
     def save_report(
         smell: str = "unknown",
@@ -94,11 +118,16 @@ def _tools(ctx: TurnContext):
         """
         if ctx.saved:
             return "Already saved for this message."
-        report = save_extracted(ctx, {
+        fields = {
             "smell": smell, "colour": colour, "taste": taste, "since_days": since_days,
             "sick_count": sick_count, "symptoms": symptoms or [], "source": source,
             "landmark": landmark, "clears_quickly": clears_quickly,
-        })
+        }
+        # Strands calls the tool with no arguments when the model's JSON doesn't parse.
+        if not fallback.is_complaint(fields) and since_days is None and source == "unknown" and not landmark:
+            problems.append("save_report called with no fields (malformed tool call)")
+            return "Error: no fields were received. Call save_report again with what the resident said."
+        report = save_extracted(ctx, fields, extracted_by=f"agent:{model_id}")
         has_location = report.lat is not None
         return f"Saved. Location {'known' if has_location else 'missing: ask for a location pin'}."
 
@@ -131,6 +160,30 @@ def guard(text: str, lang: str) -> str:
     return (" ".join(kept) + " " + ADVICE.get(lang, ADVICE["en"])).strip()
 
 
+def _tool_errors(messages: list[dict]) -> list[str]:
+    """Tool results Strands marked as errors, e.g. arguments that failed the schema."""
+    return [
+        " ".join(c.get("text", "") for c in block["toolResult"].get("content", []))[:200] or "tool error"
+        for m in messages for block in m.get("content", [])
+        if "toolResult" in block and block["toolResult"].get("status") == "error"
+    ]
+
+
+def _problem(answer: str, text: str, ctx: TurnContext, problems: list[str]) -> str | None:
+    """Why this model's turn can't be trusted, or None if it can."""
+    if not answer:
+        return "empty reply"
+    if ctx.saved:
+        return None
+    if problems:
+        return "; ".join(problems)
+    if _CLAIMS_SAVED.search(answer):
+        return "reply says the report was saved, but save_report was not called"
+    if fallback.is_complaint(fallback.extract(text)):
+        return "message is a complaint, but save_report was not called"
+    return None
+
+
 def reply(text: str, ctx: TurnContext, turns: list[dict[str, str]]) -> str:
     notes = []
     if ctx.lat is not None:
@@ -141,17 +194,23 @@ def reply(text: str, ctx: TurnContext, turns: list[dict[str, str]]) -> str:
     prompt = (text + " " + " ".join(notes)).strip()
 
     for model_id in MODEL_IDS:
+        problems: list[str] = []
         try:
             agent = Agent(
                 model=model(model_id),
                 system_prompt=SYSTEM_PROMPT,
-                tools=_tools(ctx),
+                tools=_tools(ctx, model_id, problems),
                 messages=_history(turns),
                 callback_handler=None,
             )
             answer = str(agent(prompt)).strip()
-            if answer:
-                return guard(answer, ctx.lang)
-        except Exception:
-            log.exception("model %s failed", model_id)
+            problems += _tool_errors(agent.messages)
+        except Exception as exc:
+            log.warning("model %s failed: %s: %s", model_id, type(exc).__name__, str(exc)[:300])
+            continue
+        problem = _problem(answer, text, ctx, problems)
+        if problem is None:
+            log.info("model %s answered%s", model_id, " and saved a report" if ctx.saved else "")
+            return guard(answer, ctx.lang)
+        log.warning("model %s failed: %s", model_id, problem)
     raise AgentUnavailable("no Bedrock model answered")

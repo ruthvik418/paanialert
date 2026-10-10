@@ -1,87 +1,55 @@
-# Running the agent's model calls through a friend's AWS account
+# How the agent reaches its models
 
-Bedrock is blocked on our team account (908027384294) until an overdue invoice clears. A friend's account can run just the model calls through a **cross-account role**: their account lets our worker call Bedrock, no keys are shared, and they can switch it off any time by deleting the role. Everything else (reports, phone numbers, alerts) stays in our account. The model calls are billed to their account, usually a few cents for the whole weekend, so ask them first.
+The agent calls Bedrock's **OpenAI-compatible `bedrock-mantle` endpoint in Mumbai (`ap-south-1`)**, authenticated with a Bedrock API key. Message text never leaves India, and the friend's cross-account role is no longer needed.
+
+## Why Mantle
+
+On our team account (908027384294), `bedrock-runtime` Converse fails with `ValidationException: Operation not allowed`, but the Bedrock console playground works. The playground uses `bedrock-mantle` (`https://bedrock-mantle.<region>.api.aws/v1`, OpenAI Chat Completions and Responses, no Converse), and so does the agent now.
+
+## Settings
+
+| Stack parameter | Worker env var | Default |
+|---|---|---|
+| `ModelEndpoint` | `MODEL_ENDPOINT` | `mantle` (or `runtime` for the old Converse path) |
+| `MantleRegion` | `MANTLE_REGION` | `ap-south-1` |
+| `ModelIds` | `MODEL_IDS` | `deepseek.v3.1,qwen.qwen3-235b-a22b-2507,qwen.qwen3-vl-235b-a22b-instruct` |
+
+The API key is the SecureString `/paanialert/bedrock_api_key`. The worker reads it through `common.config.secret("bedrock_api_key")`; it is never in code, `template.yaml` or logs. To replace it (Git Bash; reads the key without echoing it or saving it in shell history):
+
+```bash
+MSYS_NO_PATHCONV=1 bash -c 'read -rsp "Key: " K; aws ssm put-parameter --profile paani --type SecureString --overwrite --name /paanialert/bedrock_api_key --value "$K"'
+```
+
+Bedrock API keys expire. If every message starts falling back to keywords, check the key first.
 
 ## Which models
 
-From the models the friend's account can use:
+Probed on Oct 10 in `ap-south-1`: a plain chat, then two `save_report` tool calls (one Hinglish, one Devanagari) with our system prompt.
 
-| Order | Model | Why |
+| Order | Model | Result |
 |---|---|---|
-| 1 | **Llama 4 Maverick 17B** (`us.meta.llama4-maverick-17b-instruct-v1:0`) | Officially supports Hindi, reads images (water photos, TDS meters), fast and cheap, supports tool calls |
-| 2 | **DeepSeek V3.1** (`deepseek.v3-v1:0`) | Strongest text reasoning on the list, good with Hinglish; no images |
+| 1 | **DeepSeek V3.1** (`deepseek.v3.1`) | 2/2 tool calls, fastest (~0.75 s); once sent JSON that didn't parse in an earlier probe |
+| 2 | **Qwen3 235B** (`qwen.qwen3-235b-a22b-2507`) | 2/2, ~1.1 s |
+| 3 | **Qwen3 VL 235B** (`qwen.qwen3-vl-235b-a22b-instruct`) | 2/2, ~2.3 s; reads images, but we don't send photos to the model yet |
 
-Not chosen: Kimi K2 Thinking (thinks before every answer, too slow for WhatsApp), Qwen3 Coder and Devstral (built for code), DeepSeek R1 (no tool calls), Llama 3 / Mistral 7B / Mixtral (older and weaker), Voxtral (speech models; could later replace Transcribe for voice notes).
+On the 50 test messages through the live bot's path, every model often asks for a location pin instead of saving, which the runner counts as a failure (DeepSeek V3.1 almost always; it saved 2 of 50). See `docs/eval.md`.
 
-These are set by the `ModelIds` and `BedrockRegion` stack parameters (defaults: the two above, `us-west-2`). `scripts/pick_model.py` checks which ones actually work and scores them on our 50 test messages before you rely on them.
+Not chosen: DeepSeek V3.2 and Gemma 3 27B (replied without calling the tool), gpt-oss 120B, Mistral Large 3 and GLM 4.7 (1/2 each), Kimi K2.5 and Qwen3 Next 80B (2/2 but slower). Llama 4 Maverick isn't offered on Mantle.
 
-## Steps for the friend (5 minutes, in their AWS console)
+## When a model counts as failed
 
-1. **IAM → Roles → Create role → Custom trust policy**, and paste:
+`src/agent/runner.py` tries the models in order and moves to the next one, logging `model <id> failed: <reason>` at warning level, when a model:
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": [
-          "arn:aws:iam::908027384294:role/paanialert-WorkerFunctionRole-li4AvAGWhyxH",
-          "arn:aws:iam::908027384294:user/ruthvik-dev"
-        ]
-      },
-      "Action": "sts:AssumeRole"
-    }
-  ]
-}
-```
+- raises an error (timeout, HTTP error, bad key),
+- makes a malformed `save_report` call (JSON that doesn't parse, or arguments that fail the schema), or
+- doesn't save a report although its reply says "saved", or the message is clearly a complaint (`fallback.is_complaint`).
 
-   This trusts only our WhatsApp worker and Ruthvik's login (for testing), not our whole account.
-
-2. **Next → skip the managed policies → name it `PaaniAlertBedrockInvoke` → Create role.**
-
-3. Open the role → **Add permissions → Create inline policy → JSON**, paste, and name it `bedrock-invoke`:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"],
-      "Resource": "*"
-    }
-  ]
-}
-```
-
-4. Send us the role's **ARN** (top of the role page), e.g. `arn:aws:iam::123456789012:role/PaaniAlertBedrockInvoke`. An ARN is an identifier, not a secret.
-
-5. Tell us which **region** the models show up in (Bedrock console, top right), if it isn't `us-west-2`.
-
-## Then, on our side
-
-Check the models and pick the best (uses Ruthvik's `paani` login to step into the role):
-
-```bash
-py -3.12 scripts/pick_model.py --role-arn <ROLE ARN> --region us-west-2 --eval
-```
-
-Save the settings so every future deploy keeps them. In `samconfig.toml`, under `[default.deploy.parameters]`, add the line the script prints, for example:
-
-```toml
-parameter_overrides = "BedrockRoleArn=\"arn:aws:iam::123456789012:role/PaaniAlertBedrockInvoke\" BedrockRegion=\"us-west-2\" ModelIds=\"us.meta.llama4-maverick-17b-instruct-v1:0,deepseek.v3-v1:0\""
-```
-
-Then deploy:
-
-```bash
-py -3.12 scripts/deploy_backend.py
-```
-
-When our own account is unblocked, delete that `parameter_overrides` line, redeploy, and the friend can delete the role.
+If every model fails, the worker saves the complaint with keyword extraction instead, so a complaint is never lost. Each report's `extracted_by` says which one read it (`agent:deepseek.v3.1` or `keywords`), and the dashboard shows it as a small label on each report.
 
 ## Privacy note for the writeup
 
-With this setup, message text is processed in the friend's account in the chosen region (outside India for `us-west-2`). Phone numbers are never sent to the model; reports are stored only in our account in Mumbai.
+Message text is processed by Bedrock in `ap-south-1` (Mumbai), in our own account. Phone numbers are never sent to the model; reports are stored only in our account in Mumbai.
+
+## The old Converse path
+
+`ModelEndpoint=runtime` still calls `bedrock-runtime` Converse in `BedrockRegion`, optionally through a role in another account (`BedrockRoleArn`). That was the workaround while our account was blocked; it isn't used now. `scripts/pick_model.py` checks models on that path only.

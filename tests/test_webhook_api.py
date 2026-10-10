@@ -51,7 +51,8 @@ def test_reports_need_the_key_and_hide_phone_hash(aws):
     from agent.reports import TurnContext, save_extracted
     from api.app import handler
 
-    save_extracted(TurnContext(phone_hash="secret-hash", lang="en", lat=22.72, lon=75.86), {"smell": "sewage"})
+    save_extracted(TurnContext(phone_hash="secret-hash", lang="en", lat=22.72, lon=75.86), {"smell": "sewage"},
+                   extracted_by="keywords")
 
     assert handler(_api("GET /reports", key=None), None)["statusCode"] == 401
     assert handler(_api("GET /reports", key="wrong"), None)["statusCode"] == 401
@@ -159,7 +160,8 @@ def _saved_report(**ctx):
 
     report = save_extracted(TurnContext(phone_hash="hash-1", lang="en", lat=22.7196, lon=75.8577,
                                         text="paani mein badboo", profile_name="Ravi Kumar",
-                                        phone_masked="+91 98•••••210", **ctx), {"smell": "sewage"})
+                                        phone_masked="+91 98•••••210", **ctx), {"smell": "sewage"},
+                            extracted_by="keywords")
     db.put_contact("hash-1", "+919876543210")
     return report
 

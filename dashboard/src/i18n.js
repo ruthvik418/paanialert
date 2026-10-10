@@ -61,6 +61,8 @@ const STRINGS = {
 
     reporter: "Reporter",
     nameUnknown: "Name not shared",
+    readByAgent: "Read by AI model", readByKeywords: "Read by keywords (AI unavailable)",
+    keywordsTag: "Keywords",
     number: "Number",
     showNumber: "Show number",
     showingNumber: "Showing…",
@@ -176,6 +178,8 @@ const STRINGS = {
 
     reporter: "शिकायतकर्ता",
     nameUnknown: "नाम नहीं बताया",
+    readByAgent: "AI मॉडल ने पढ़ा", readByKeywords: "कीवर्ड से पढ़ा (AI उपलब्ध नहीं)",
+    keywordsTag: "कीवर्ड",
     number: "नंबर",
     showNumber: "नंबर दिखाएँ",
     showingNumber: "दिखा रहे हैं…",

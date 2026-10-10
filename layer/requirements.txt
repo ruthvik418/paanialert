@@ -1,5 +1,5 @@
 # Runtime libraries for every Lambda function, packaged as one layer.
 # After changing this file, run: python scripts/build_layer.py
-strands-agents
+strands-agents[openai]   # OpenAIModel for the bedrock-mantle endpoint
 twilio
 requests

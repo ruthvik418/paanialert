@@ -173,10 +173,11 @@ def _handle_message(msg: dict, text: str, ph: str, state: dict, turns: list, lan
 
 def _keyword_reply(text: str, ctx: TurnContext) -> str:
     """Used only when no Bedrock model answers."""
-    fields = fallback.extract(text)
-    if not fallback.is_complaint(fields):
-        return prompts.WELCOME[ctx.lang]
-    save_extracted(ctx, fields)
+    if not ctx.saved:   # a model may have saved the report, then failed before replying
+        fields = fallback.extract(text)
+        if not fallback.is_complaint(fields):
+            return prompts.WELCOME[ctx.lang]
+        save_extracted(ctx, fields, extracted_by="keywords")
     return prompts.REPORT_SAVED[ctx.lang] + "\n\n" + prompts.ADVICE[ctx.lang]
 
 

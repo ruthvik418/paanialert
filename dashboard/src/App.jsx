@@ -362,7 +362,24 @@ function ReportSummary({ r, placeText }) {
       <div className="muted small">
         {r.profile_name || t("nameUnknown")}
         {r.phone_masked && <> · <span className="num" translate="no">{r.phone_masked}</span></>}
+        <ExtractedBy r={r} />
       </div>
+    </>
+  );
+}
+
+/** Small label saying what read the message: the AI model's id, or the keyword fallback. */
+function ExtractedBy({ r }) {
+  const { t } = useLang();
+  if (!r.extracted_by) return null;   // reports from before the label existed
+  const model = r.extracted_by.startsWith("agent:") ? r.extracted_by.slice(6) : null;
+  return (
+    <>
+      {" "}
+      <span className={`tag${model ? "" : " keywords"}`} title={model ? t("readByAgent") : t("readByKeywords")}>
+        <span className="visually-hidden">{model ? t("readByAgent") : t("readByKeywords")}: </span>
+        {model ? <span translate="no">{model}</span> : t("keywordsTag")}
+      </span>
     </>
   );
 }

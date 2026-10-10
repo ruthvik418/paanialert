@@ -36,8 +36,11 @@ class TurnContext:
     saved: Report | None = field(default=None)
 
 
-def save_extracted(ctx: TurnContext, fields: dict[str, Any]) -> Report:
-    """Validate the fields, attach location and media, and store the report."""
+def save_extracted(ctx: TurnContext, fields: dict[str, Any], extracted_by: str) -> Report:
+    """Validate the fields, attach location and media, and store the report.
+
+    extracted_by records what read the message: "agent:<model id>" or "keywords".
+    """
     clean: dict[str, Any] = {}
     for name, allowed in _ALLOWED.items():
         value = str(fields.get(name) or "unknown").strip().lower()
@@ -66,6 +69,7 @@ def save_extracted(ctx: TurnContext, fields: dict[str, Any]) -> Report:
         text=ctx.text[:1000] if ctx.text else None,
         profile_name=ctx.profile_name,
         phone_masked=ctx.phone_masked,
+        extracted_by=extracted_by,
         **clean,
     )
     db.put_report(report)
