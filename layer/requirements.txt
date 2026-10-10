@@ -3,3 +3,6 @@
 strands-agents
 twilio
 requests
+# Fallback providers if Bedrock is unavailable (keys in SSM; see docs/ai-providers.md)
+anthropic
+google-genai

@@ -83,7 +83,7 @@ def evaluate(model_id: str) -> float | None:
     right = 0
     for row in rows:
         try:
-            got = extract(row["text"], model_id=model_id).model_dump()
+            got = extract(row["text"], label=f"bedrock:{model_id}").model_dump()
             right += all(got.get(f) == row["expected"][f] for f in fields)
         except Exception:
             pass
