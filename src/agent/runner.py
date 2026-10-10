@@ -1,16 +1,24 @@
-"""Runs the Strands agent for one incoming message. Owner: B.
+"""Reads one incoming message with a model, saves the report, and builds the reply. Owner: B.
+
+Extraction and conversation are separate:
+1. A model fills ReportFields through Strands structured output (a forced tool
+   call), so it can't chat its way past saving.
+2. Code decides whether that's a complaint, saves it with save_extracted, and
+   builds the reply from prompts.py: what was understood, ADVICE, and
+   ASK_LOCATION if there's no pin.
+3. Anything else (greetings, questions) gets a short model reply, or WELCOME.
 
 Order tried: the Bedrock models in MODEL_IDS, then Claude and Gemini through
 their own APIs, but only if their key is stored in SSM (/paanialert/
-anthropic_api_key, /paanialert/gemini_api_key). A model counts as failed, and
-the next one is tried, if it errors, makes a malformed save_report call, or
-answers a complaint without saving it. If every model fails, the caller falls
-back to keyword extraction (agent/fallback.py), so a complaint is never lost.
+anthropic_api_key, /paanialert/gemini_api_key). A model that errors or returns
+no fields is skipped for the next one. If none works, the caller falls back to
+keyword extraction (agent/fallback.py), so a complaint is never lost.
 
-MODEL_ENDPOINT picks how models are called:
+MODEL_ENDPOINT picks how Bedrock models are called:
 - mantle (default): the OpenAI-compatible bedrock-mantle endpoint in
-  MANTLE_REGION, with the Bedrock API key in SSM /paanialert/bedrock_api_key.
-  This is what the Bedrock console playground uses, and it works on our account.
+  MANTLE_REGION, authenticated with short-lived tokens signed from the worker's
+  IAM role (bedrock-mantle:CreateInference, CallWithBearerToken). This is what
+  the Bedrock console playground uses, and it works on our account.
 - runtime: bedrock-runtime Converse in BEDROCK_REGION, optionally through
   BEDROCK_ROLE_ARN in another account (see docs/bedrock-access.md).
 """
@@ -22,22 +30,24 @@ import re
 import time
 
 import boto3
-from strands import Agent, tool
+from pydantic import BaseModel, Field
+from strands import Agent
 from strands.models import BedrockModel
 from strands.models.openai import OpenAIModel
 
-from agent import fallback
-from agent.prompts import ADVICE, LANGUAGES, SYSTEM_PROMPT
+from agent.prompts import (ADVICE, ASK_LOCATION, CHAT_PROMPT, CONFIRM, EXTRACTION_PROMPT, FIELD_LABELS,
+                           LANGUAGES, WELCOME)
 from agent.reports import TurnContext, save_extracted
 from common.config import secret
+from common.models import Colour, Smell, Source, Taste
 
 log = logging.getLogger(__name__)
 
 MODEL_ENDPOINT = os.environ.get("MODEL_ENDPOINT", "mantle").strip().lower()
-# Mantle: DeepSeek V3.1 was the fastest to pass our Hindi/Hinglish tool-call probe, then Qwen3 235B.
-# Qwen3 VL also reads images, for when photos are sent to the model. Override with the ModelIds stack parameter.
+# Mantle: Qwen3 235B saved the most of our 50 test messages; Qwen3 VL also reads images, for when
+# photos are sent to the model. Override with the ModelIds stack parameter.
 DEFAULT_MODEL_IDS = {
-    "mantle": "deepseek.v3.1,qwen.qwen3-235b-a22b-2507,qwen.qwen3-vl-235b-a22b-instruct",
+    "mantle": "qwen.qwen3-235b-a22b-2507,qwen.qwen3-vl-235b-a22b-instruct",
     "runtime": "us.meta.llama4-maverick-17b-instruct-v1:0,deepseek.v3-v1:0",
 }[MODEL_ENDPOINT]
 MODEL_IDS = [m.strip() for m in os.environ.get("MODEL_IDS", DEFAULT_MODEL_IDS).split(",") if m.strip()]
@@ -51,7 +61,7 @@ CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-5-5")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 _UNSAFE_WORD = re.compile(r"\b(safe|surakshit)\b|सुरक्षित", re.I)
-# A reply that tells the person their report is in, e.g. "Your report is saved" / "रिपोर्ट दर्ज हो गई".
+# A chat reply must not tell the person a report was saved: only code saves reports now.
 _CLAIMS_SAVED = re.compile(
     r"\b(saved|recorded|registered|logged|save (ho|kar)\w*|darj|note kar\w*)\b|दर्ज|सेव|नोट कर", re.I
 )
@@ -61,6 +71,42 @@ _key_checks: dict[str, tuple[float, str | None]] = {}
 
 class AgentUnavailable(Exception):
     pass
+
+
+class ReportFields(BaseModel):
+    """The water complaint in one resident's message. Unknown or null for anything the message doesn't say.
+
+    Every field is required (but may be unknown/null): when a model's tool-call JSON doesn't parse, Strands
+    passes {} and this must fail validation, not read as "nothing wrong".
+    """
+
+    smell: Smell = Field(..., description=(
+        "sewage for any bad or foul smell (badboo, badbu, naali/gutter jaisi, बदबू, दुर्गंध, stink); "
+        "chemical for chlorine, medicine (dawai, दवा), kerosene or petrol; other for a strange smell that is "
+        "none of those; none only if they say there is no smell"))
+    colour: Colour = Field(..., description=(
+        "yellow (peela, पीला); brown (bhura, matmaila, भूरा, मटमैला); black (kala, काला); "
+        "cloudy for dirty, muddy or with particles (ganda, gandla, mitti, kachra, गंदा, कचरा, cloudy); "
+        "clear only if they say it looks clean (saaf, साफ, rang theek)"))
+    taste: Taste = Field(..., description=(
+        "salty (khara, namkeen, खारा); bad for bitter or any other bad taste (kadwa, swad kharab); "
+        "normal only if they say the taste is fine"))
+    since_days: int | None = Field(..., ge=0, description=(
+        "How many days it has been happening: 0 for today, this morning or 'aaj subah se'; 1 for "
+        "yesterday or 'kal se'; 7 for a week or 'hafte se'; the number for 'N din se' / 'N days'. "
+        "null if they don't say when it started"))
+    sick_count: int | None = Field(..., ge=0, description=(
+        "People at home who are sick: the number they give, or 1 if someone is sick and no number is "
+        "given. 0 only if they say nobody is sick (koi bimar nahi, dast nahi hai, nobody is sick). "
+        "null if sickness isn't mentioned at all"))
+    symptoms: list[str] = Field(..., description=(
+        "In English, e.g. diarrhoea, vomiting, fever, stomach pain; empty if nobody is sick"))
+    source: Source = Field(..., description="pipe for tap or supply water (nal, supply), borewell, tanker")
+    landmark: str | None = Field(..., description="A place they name, if any")
+    clears_quickly: bool | None = Field(..., description="true if the water clears after running a few minutes")
+
+    def is_complaint(self) -> bool:
+        return any(v != "unknown" for v in (self.smell, self.colour, self.taste)) or (self.sick_count or 0) > 0
 
 
 def _boto_session() -> boto3.Session:
@@ -84,11 +130,12 @@ def _boto_session() -> boto3.Session:
 
 def model(model_id: str) -> BedrockModel | OpenAIModel:
     if MODEL_ENDPOINT == "mantle":
-        # No retries and a short timeout: a turn is ~2 requests per model, and three models must
-        # fit in the worker's 120 s. A slow model is skipped for the next one instead.
+        # A short-lived bearer token is signed from the worker's own IAM role on every request, so
+        # there is no stored key. No retries and a short timeout: a slow model is skipped for the
+        # next one, and the whole turn must fit in the worker's 120 s.
         return OpenAIModel(
-            client_args={"api_key": secret("bedrock_api_key"), "timeout": 15, "max_retries": 0,
-                         "base_url": f"https://bedrock-mantle.{MANTLE_REGION}.api.aws/v1"},
+            client_args={"timeout": 15, "max_retries": 0},
+            bedrock_mantle_config={"region": MANTLE_REGION},
             model_id=model_id, stream=STREAMING, params={"temperature": 0.2, "max_tokens": 600},
         )
     return BedrockModel(boto_session=_boto_session(), model_id=model_id, temperature=0.2,
@@ -101,7 +148,6 @@ def _stored_key(name: str) -> str | None:
     if checked and checked[0] > time.time() - 300:
         return checked[1]
     try:
-        from common.config import secret
         value = secret(name)
     except Exception:
         value = None
@@ -132,50 +178,6 @@ def build(label: str):
                        model_id=model_id, params={"temperature": 0.2, "max_output_tokens": 600})
 
 
-def _tools(ctx: TurnContext, model_id: str, problems: list[str]):
-    @tool
-    def save_report(
-        smell: str = "unknown",
-        colour: str = "unknown",
-        taste: str = "unknown",
-        since_days: int | None = None,
-        sick_count: int | None = None,
-        symptoms: list[str] | None = None,
-        source: str = "unknown",
-        landmark: str | None = None,
-        clears_quickly: bool | None = None,
-    ) -> str:
-        """Save the resident's water complaint. Call once, as soon as you know what is wrong.
-
-        Args:
-            smell: one of none, sewage, chemical, other, unknown
-            colour: one of clear, yellow, brown, black, cloudy, unknown
-            taste: one of normal, bad, salty, unknown
-            since_days: how many days it has been happening, if said
-            sick_count: people sick at home; 0 if they said nobody is sick; empty if not said
-            symptoms: e.g. diarrhoea, vomiting, fever; empty if nobody is sick
-            source: one of pipe, borewell, tanker, unknown
-            landmark: a place they mentioned, if any
-            clears_quickly: true if the water clears after a few minutes of running
-        """
-        if ctx.saved:
-            return "Already saved for this message."
-        fields = {
-            "smell": smell, "colour": colour, "taste": taste, "since_days": since_days,
-            "sick_count": sick_count, "symptoms": symptoms or [], "source": source,
-            "landmark": landmark, "clears_quickly": clears_quickly,
-        }
-        # Strands calls the tool with no arguments when the model's JSON doesn't parse.
-        if not fallback.is_complaint(fields) and since_days is None and source == "unknown" and not landmark:
-            problems.append("save_report called with no fields (malformed tool call)")
-            return "Error: no fields were received. Call save_report again with what the resident said."
-        report = save_extracted(ctx, fields, extracted_by=f"agent:{model_id}")
-        has_location = report.lat is not None
-        return f"Saved. Location {'known' if has_location else 'missing: ask for a location pin'}."
-
-    return [save_report]
-
-
 def _history(turns: list[dict[str, str]]) -> list[dict]:
     """Rebuild a clean user/assistant alternation for the model from stored turns."""
     messages: list[dict] = []
@@ -202,58 +204,59 @@ def guard(text: str, lang: str) -> str:
     return (" ".join(kept) + " " + ADVICE.get(lang, ADVICE["en"])).strip()
 
 
-def _tool_errors(messages: list[dict]) -> list[str]:
-    """Tool results Strands marked as errors, e.g. arguments that failed the schema."""
-    return [
-        " ".join(c.get("text", "") for c in block["toolResult"].get("content", []))[:200] or "tool error"
-        for m in messages for block in m.get("content", [])
-        if "toolResult" in block and block["toolResult"].get("status") == "error"
-    ]
+def extract_fields(text: str, label: str) -> ReportFields:
+    """One forced structured-output call: the model must fill ReportFields."""
+    agent = Agent(model=build(label), system_prompt=EXTRACTION_PROMPT, callback_handler=None)
+    result = agent(text, structured_output_model=ReportFields)
+    if not isinstance(result.structured_output, ReportFields):
+        raise ValueError("no structured output")
+    return result.structured_output
 
 
-def _problem(answer: str, text: str, ctx: TurnContext, problems: list[str]) -> str | None:
-    """Why this model's turn can't be trusted, or None if it can."""
-    if not answer:
-        return "empty reply"
-    if ctx.saved:
-        return None
-    if problems:
-        return "; ".join(problems)
-    if _CLAIMS_SAVED.search(answer):
-        return "reply says the report was saved, but save_report was not called"
-    if fallback.is_complaint(fallback.extract(text)):
-        return "message is a complaint, but save_report was not called"
-    return None
+def confirmation(fields: ReportFields, lang: str) -> str:
+    """One line saying what was understood, e.g. "✅ Report saved: yellow water, sewage smell, for 2 days."."""
+    parts = [FIELD_LABELS[name][getattr(fields, name)][lang]
+             for name in ("colour", "smell", "taste") if getattr(fields, name) in FIELD_LABELS[name]]
+    for name in ("since_days", "sick_count"):
+        n = getattr(fields, name)
+        if n is not None:
+            labels = FIELD_LABELS[name]
+            parts.append(labels[n][lang] if n in labels else labels["n"][lang].format(n=n))
+    return CONFIRM[lang].format(summary=", ".join(parts))
+
+
+def _chat(label: str, prompt: str, turns: list[dict[str, str]], lang: str) -> str:
+    """A short reply to a message that isn't a complaint; WELCOME if the model can't give a clean one."""
+    try:
+        agent = Agent(model=build(label), system_prompt=CHAT_PROMPT, messages=_history(turns), callback_handler=None)
+        answer = str(agent(prompt)).strip()
+    except Exception as exc:
+        log.warning("chat reply from %s failed: %s: %s", label, type(exc).__name__, str(exc)[:300])
+        return WELCOME[lang]
+    if not answer or _CLAIMS_SAVED.search(answer):
+        return WELCOME[lang]
+    return guard(answer, lang)
 
 
 def reply(text: str, ctx: TurnContext, turns: list[dict[str, str]]) -> str:
-    notes = []
-    if ctx.lat is not None:
-        notes.append("[the location is already known]")
-    if ctx.photo_key:
-        notes.append("[the person attached a photo]")
-    notes.append(f"[Reply in {LANGUAGES.get(ctx.lang, LANGUAGES['en'])}]")
-    prompt = (text + " " + " ".join(notes)).strip()
-
+    lang = ctx.lang if ctx.lang in LANGUAGES else "en"
     for label in candidates():
-        model_id = label.split(":", 1)[1]
-        problems: list[str] = []
         try:
-            agent = Agent(
-                model=build(label),
-                system_prompt=SYSTEM_PROMPT,
-                tools=_tools(ctx, model_id, problems),
-                messages=_history(turns),
-                callback_handler=None,
-            )
-            answer = str(agent(prompt)).strip()
-            problems += _tool_errors(agent.messages)
+            fields = extract_fields(text, label)
+            break
         except Exception as exc:
             log.warning("model %s failed: %s: %s", label, type(exc).__name__, str(exc)[:300])
-            continue
-        problem = _problem(answer, text, ctx, problems)
-        if problem is None:
-            log.info("answered by %s%s", label, " and saved a report" if ctx.saved else "")
-            return guard(answer, ctx.lang)
-        log.warning("model %s failed: %s", label, problem)
-    raise AgentUnavailable("no model answered")
+    else:
+        raise AgentUnavailable("no model answered")
+
+    if not fields.is_complaint():
+        log.info("answered by %s (not a complaint)", label)
+        return _chat(label, f"{text} [Reply in {LANGUAGES[lang]}]", turns, lang)
+
+    model_id = label.split(":", 1)[1]
+    report = save_extracted(ctx, fields.model_dump(), extracted_by=f"agent:{model_id}")
+    log.info("answered by %s and saved a report", label)
+    parts = [confirmation(fields, lang), ADVICE[lang]]
+    if report.lat is None:
+        parts.append(ASK_LOCATION[lang])
+    return "\n\n".join(parts)

@@ -37,8 +37,8 @@ def extractor(method: str):
 
 
 def _live_agent():
-    """What the WhatsApp bot does: runner.reply with SYSTEM_PROMPT, the save_report tool and the
-    model fallback chain. The save is captured instead of written, so nothing reaches DynamoDB."""
+    """What the WhatsApp bot does: runner.reply, i.e. forced extraction with the model fallback chain.
+    The save is captured instead of written, so nothing reaches DynamoDB."""
     from types import SimpleNamespace
 
     import agent.runner as runner

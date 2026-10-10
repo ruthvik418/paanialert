@@ -1,6 +1,6 @@
 # How the agent reaches its models
 
-The agent calls Bedrock's **OpenAI-compatible `bedrock-mantle` endpoint in Mumbai (`ap-south-1`)**, authenticated with a Bedrock API key. Message text never leaves India, and the friend's cross-account role is no longer needed.
+The agent calls Bedrock's **OpenAI-compatible `bedrock-mantle` endpoint in Mumbai (`ap-south-1`)**, authenticated with **short-lived tokens signed from the worker's own IAM role**. There is no stored key, message text never leaves India, and the friend's cross-account role is no longer needed.
 
 ## Why Mantle
 
@@ -8,43 +8,36 @@ On our team account (908027384294), `bedrock-runtime` Converse fails with `Valid
 
 ## Settings
 
-| Stack parameter | Worker env var | Default |
+| Stack parameter | Worker env var | Value (pinned in `samconfig.toml`) |
 |---|---|---|
 | `ModelEndpoint` | `MODEL_ENDPOINT` | `mantle` (or `runtime` for the old Converse path) |
 | `MantleRegion` | `MANTLE_REGION` | `ap-south-1` |
-| `ModelIds` | `MODEL_IDS` | `deepseek.v3.1,qwen.qwen3-235b-a22b-2507,qwen.qwen3-vl-235b-a22b-instruct` |
+| `ModelIds` | `MODEL_IDS` | `qwen.qwen3-235b-a22b-2507,qwen.qwen3-vl-235b-a22b-instruct` |
 
-The API key is the SecureString `/paanialert/bedrock_api_key`. The worker reads it through `common.config.secret("bedrock_api_key")`; it is never in code, `template.yaml` or logs. To replace it (Git Bash; reads the key without echoing it or saving it in shell history):
+`sam deploy` keeps a parameter's previous value unless it's overridden, so change these in `samconfig.toml`, not only in `template.yaml`.
 
-```bash
-MSYS_NO_PATHCONV=1 bash -c 'read -rsp "Key: " K; aws ssm put-parameter --profile paani --type SecureString --overwrite --name /paanialert/bedrock_api_key --value "$K"'
-```
-
-Bedrock API keys expire. If every message starts falling back to keywords, check the key first.
+**Auth.** Strands' `OpenAIModel(bedrock_mantle_config=...)` signs a fresh bearer token from the worker role's credentials on every request (`aws-bedrock-token-generator`, no network call). The worker role has only `bedrock-mantle:CreateInference` on `project/*` in `MantleRegion` and `bedrock-mantle:CallWithBearerToken` limited to `SHORT_TERM` tokens, and is explicitly denied the old `/paanialert/bedrock_api_key` parameter. Locally, the same works from your `paani` login (needs `botocore[crt]`, in `requirements-dev.txt`).
 
 ## Which models
 
-Probed on Oct 10 in `ap-south-1`: a plain chat, then two `save_report` tool calls (one Hinglish, one Devanagari) with our system prompt.
+Probed on Oct 10 in `ap-south-1`, then scored on our 50 test messages (`docs/eval.md`):
 
-| Order | Model | Result |
+| Order | Model | Why |
 |---|---|---|
-| 1 | **DeepSeek V3.1** (`deepseek.v3.1`) | 2/2 tool calls, fastest (~0.75 s); once sent JSON that didn't parse in an earlier probe |
-| 2 | **Qwen3 235B** (`qwen.qwen3-235b-a22b-2507`) | 2/2, ~1.1 s |
-| 3 | **Qwen3 VL 235B** (`qwen.qwen3-vl-235b-a22b-instruct`) | 2/2, ~2.3 s; reads images, but we don't send photos to the model yet |
+| 1 | **Qwen3 235B** (`qwen.qwen3-235b-a22b-2507`) | Read all 50 test messages correctly enough for 90–92% all-five-fields; ~1.2 s median |
+| 2 | **Qwen3 VL 235B** (`qwen.qwen3-vl-235b-a22b-instruct`) | Backup; also reads images, but we don't send photos to the model yet |
 
-On the 50 test messages through the live bot's path, every model often asks for a location pin instead of saving, which the runner counts as a failure (DeepSeek V3.1 almost always; it saved 2 of 50). See `docs/eval.md`.
+Dropped: DeepSeek V3.1 (as a conversation agent it saved only 2 of 50 complaints, asking for a location instead). Not chosen: DeepSeek V3.2 and Gemma 3 27B (didn't call tools), gpt-oss 120B, Mistral Large 3 and GLM 4.7 (1/2 in the tool probe), Kimi K2.5 and Qwen3 Next 80B (slower). Llama 4 Maverick isn't offered on Mantle.
 
-Not chosen: DeepSeek V3.2 and Gemma 3 27B (replied without calling the tool), gpt-oss 120B, Mistral Large 3 and GLM 4.7 (1/2 each), Kimi K2.5 and Qwen3 Next 80B (2/2 but slower). Llama 4 Maverick isn't offered on Mantle.
+## How a message is read
 
-## When a model counts as failed
+`src/agent/runner.py` separates extraction from conversation:
 
-`src/agent/runner.py` tries the models in order and moves to the next one, logging `model <id> failed: <reason>` at warning level, when a model:
+1. The model fills `ReportFields` (Pydantic, with our conventions in the field descriptions) through Strands structured output. If it answers in text instead, Strands forces the tool call; if its JSON doesn't parse, validation fails and it tries again.
+2. Code decides whether it's a complaint (any smell, colour or taste that isn't unknown, or someone sick), saves it with `extracted_by = "agent:<model id>"`, and replies from `prompts.py`: one line of what was understood, the standard advice, and a location request if there's no pin.
+3. Anything else (greetings, questions) gets a short model reply, or `WELCOME`.
 
-- raises an error (timeout, HTTP error, bad key),
-- makes a malformed `save_report` call (JSON that doesn't parse, or arguments that fail the schema), or
-- doesn't save a report although its reply says "saved", or the message is clearly a complaint (`fallback.is_complaint`).
-
-If every model fails, the worker saves the complaint with keyword extraction instead, so a complaint is never lost. Each report's `extracted_by` says which one read it (`agent:deepseek.v3.1` or `keywords`), and the dashboard shows it as a small label on each report.
+A model that errors or never returns valid fields is logged (`model <label> failed: …`, warning) and the next one is tried. If all fail, the worker saves the complaint with keyword extraction (`extracted_by = "keywords"`), so a complaint is never lost. The dashboard shows `extracted_by` as a small label on each report.
 
 ## Privacy note for the writeup
 

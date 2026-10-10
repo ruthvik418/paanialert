@@ -11,14 +11,14 @@ Parameters:
     Type: String
     Default: mantle
     AllowedValues: [mantle, runtime]
-    Description: mantle = bedrock-mantle (OpenAI-compatible, API key in SSM bedrock_api_key); runtime = bedrock-runtime Converse
+    Description: mantle = bedrock-mantle (OpenAI-compatible, short-lived tokens from the worker role); runtime = bedrock-runtime Converse
   MantleRegion:
     Type: String
     Default: ap-south-1
     Description: Region for bedrock-mantle model calls (ap-south-1 keeps message text in India)
   ModelIds:
     Type: String
-    Default: deepseek.v3.1,qwen.qwen3-235b-a22b-2507,qwen.qwen3-vl-235b-a22b-instruct
+    Default: qwen.qwen3-235b-a22b-2507,qwen.qwen3-vl-235b-a22b-instruct
     Description: Bedrock models for the agent, tried in order (ids for the chosen ModelEndpoint)
   BedrockRegion:
     Type: String
@@ -275,10 +275,22 @@ Resources:
             - Effect: Allow
               Action: dynamodb:PutItem
               Resource: !GetAtt ContactsTable.Arn
-        - SSMParameterReadPolicy: { ParameterName: paanialert/* }   # includes bedrock_api_key for Mantle
+        - SSMParameterReadPolicy: { ParameterName: paanialert/* }
         - Statement:
+            # Mantle uses short-lived tokens signed from this role, not the old stored API key.
+            - Effect: Deny
+              Action: ssm:GetParameter*
+              Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/paanialert/bedrock_api_key"
             - Effect: Allow
-              Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]
+              Action: bedrock-mantle:CreateInference
+              Resource: !Sub "arn:${AWS::Partition}:bedrock-mantle:${MantleRegion}:${AWS::AccountId}:project/*"
+            - Effect: Allow
+              Action: bedrock-mantle:CallWithBearerToken
+              Resource: "*"
+              Condition:
+                StringEquals: { "bedrock-mantle:BearerTokenType": SHORT_TERM }
+            - Effect: Allow
+              Action: [bedrock:InvokeModel, bedrock:InvokeModelWithResponseStream]   # ModelEndpoint=runtime
               Resource: "*"
             - Effect: Allow
               Action: sts:AssumeRole

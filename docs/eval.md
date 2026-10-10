@@ -13,18 +13,17 @@ The fixes were general (Hindi and English number words, "aaj subah se", common t
 
 ## Bedrock agent (Mantle, `ap-south-1`)
 
-`--method agent` scores the live bot's path: `runner.reply` with `SYSTEM_PROMPT`, the `save_report` tool and the model fallback chain (the save is captured, nothing is written). A message the models didn't save counts as wrong here, although in production it is saved by keywords.
+`--method agent` scores the live bot's path, `runner.reply` with the model fallback chain (the save is captured, nothing is written). A message no model saved counts as wrong here, although in production keywords would save it.
 
-| Run | Model order | All five fields right | Saved by |
+| Run | How the bot reads a message | All five fields right | Median per message |
 |---|---|---|---|
-| Oct 10 | `deepseek.v3.1`, `qwen.qwen3-235b-a22b-2507`, `qwen.qwen3-vl-235b-a22b-instruct` (deployed) | **21/50 (42%)** | DeepSeek 2, Qwen3 235B 26, Qwen3 VL 7, no model 13, not saved 2 |
-| Oct 10 | Qwen3 235B, Qwen3 VL, DeepSeek V3.1 | 22/50 (44%) | Qwen3 235B 27, Qwen3 VL 6, no model 15, not saved 2 |
+| Oct 10 | Conversation agent calls a `save_report` tool when it decides to (DeepSeek V3.1, Qwen3 235B, Qwen3 VL) | 19/50 to 21/50 (38–42%) | 3.0 s |
+| Oct 10 | **Forced extraction** into `ReportFields`, code saves and replies (Qwen3 235B, Qwen3 VL) | **45/50 to 46/50 (90–92%)** | **1.2 s** (p90 1.6 s) |
 
-Per field (deployed order): smell 68%, colour 62%, taste 70%, since_days 86%, sick_count 72%.
+Per field, forced extraction (last run): smell 98%, colour 92%, taste 96%, since_days 100%, sick_count 100%. Qwen3 235B read all 50 messages; Qwen3 VL and keywords were never needed.
 
-What drags it down:
+**Why the jump.** Before, most of the loss was complaints that were never saved (22 of 50): the models asked for a location pin instead of calling the tool. When they did save, values were nearly always right (11 wrong fields in 28 reports, mostly `sick_count` 0 when sickness wasn't mentioned). Forcing the structured output removes the "didn't save" failure, and the field descriptions in `ReportFields` carry the conventions (`since_days` 0 for "aaj subah se", `sick_count` null unless sickness is mentioned).
 
-- **Asking for a location before saving.** All three models often reply "Could you share your location? Attach (📎) → Location so I can report this" instead of calling `save_report` (DeepSeek V3.1 almost always). The runner treats that as a failure and tries the next model; 13–15 of 50 complaints end up with keywords. The system prompt says both "save as soon as you know what is wrong" and "ask for a location pin"; making it say "save first, then ask for the pin" should fix most of these.
-- **sick_count 0 when nobody mentioned sickness** (expected empty), and **"matmaila" read as cloudy** (expected brown).
+**Remaining misses:** "khara" read as a bad taste instead of salty, "pila" (yellow, misspelt) read as unknown, "matmaila" read as cloudy, worms ("keede") read as cloudy, and #35 "Something is wrong with the water", which has nothing to save, so the bot asks what's wrong instead (scored as a miss).
 
-The old `--method structured` path (`agent/extract.py`, one structured-output call with `EXTRACT_PROMPT`) scored 13/50 (26%): that prompt lists no allowed values or Hindi examples, so the models answer "peela" or "bad" and the schema turns them into `unknown`. The bot doesn't use that path.
+**Caveat:** the colour and smell word lists in `ReportFields` overlap with words in these 50 messages (they are the same everyday words the keyword fallback uses), so like the fallback this overstates real accuracy. Score a fresh holdout set (`data/test_messages_holdout.jsonl`, written by someone who hasn't seen the rules) before quoting a number.

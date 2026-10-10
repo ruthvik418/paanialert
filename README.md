@@ -95,7 +95,7 @@ python scripts/fake_reports.py --clean                                          
 
 Fake reports use made-up phone hashes, so nobody is messaged. To get the official emails, subscribe an address to the `WardEngineerTopicArn` and `HealthOfficerTopicArn` stack outputs (SNS console → Subscriptions → Create subscription → Email) and confirm it. For a demo of escalation, deploy with `--parameter-overrides EscalateAfterMin=10`.
 
-The agent uses DeepSeek V3.1, then Qwen3 235B and Qwen3 VL as backups (`ModelIds` parameter), through Bedrock's OpenAI-compatible `bedrock-mantle` endpoint in Mumbai with the API key in SSM `/paanialert/bedrock_api_key`. If no model answers properly, the worker falls back to keyword extraction (`src/agent/fallback.py`) so reports, clusters and alerts keep working; each report's `extracted_by` shows which one read it. See `docs/bedrock-access.md`.
+The agent reads each message with Qwen3 235B (Qwen3 VL as backup, `ModelIds` parameter) through Bedrock's OpenAI-compatible `bedrock-mantle` endpoint in Mumbai, authenticated with short-lived tokens from the worker's IAM role. The model fills the report fields (a forced structured-output call); code saves the report and writes the reply. If no model answers, the worker falls back to keyword extraction (`src/agent/fallback.py`) so reports, clusters and alerts keep working; each report's `extracted_by` shows which one read it. See `docs/bedrock-access.md` and `docs/eval.md`.
 
 ## Working together
 

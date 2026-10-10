@@ -1,4 +1,5 @@
 -r layer/requirements.txt
 boto3
+botocore[crt]   # lets boto3 read `aws login` sessions (the paani profile)
 pytest
 moto[dynamodb,s3,sqs,ssm]

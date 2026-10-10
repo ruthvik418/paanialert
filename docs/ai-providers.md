@@ -2,7 +2,7 @@
 
 The agent tries models in this order (`src/agent/runner.py`):
 
-1. **Bedrock**: the models in the `ModelIds` stack parameter (Llama 4 Maverick, then DeepSeek V3.1), in our account or through `BedrockRoleArn`
+1. **Bedrock**: the models in the `ModelIds` stack parameter (Qwen3 235B, then Qwen3 VL) through the `bedrock-mantle` endpoint in our account (see `docs/bedrock-access.md`)
 2. **Claude** through Anthropic's API, only if `/paanialert/anthropic_api_key` exists in SSM
 3. **Gemini** through Google's API, only if `/paanialert/gemini_api_key` exists in SSM
 4. If none answers: keyword extraction (`src/agent/fallback.py`)
