@@ -78,7 +78,7 @@ export default function ReportPage() {
   const [pin, setPin] = useState(null);             // {lat, lon, fly}
   const [locating, setLocating] = useState(false);
   const [locationNote, setLocationNote] = useState("");
-  const [photo, setPhoto] = useState(null);         // {blob, url}
+  const [photo, setPhoto] = useState(null);         // {blob, url, width, height}
   const [photoError, setPhotoError] = useState("");
   const [errors, setErrors] = useState({});
   const [sending, setSending] = useState(false);
@@ -141,7 +141,8 @@ export default function ReportPage() {
     setPhotoError("");
     try {
       const blob = await shrink(file);
-      setPhoto({ blob, url: URL.createObjectURL(blob) });
+      const size = await createImageBitmap(blob).then((b) => { const wh = [b.width, b.height]; b.close?.(); return wh; }).catch(() => [4, 3]);
+      setPhoto({ blob, url: URL.createObjectURL(blob), width: size[0], height: size[1] });
       setErrors((x) => ({ ...x, text: "" }));
     } catch {
       setPhotoError(t("rpPhotoFailed"));
@@ -283,8 +284,8 @@ export default function ReportPage() {
                 <p className="rs-hint" id="report-text-hint">{t("rpTextHint")}</p>
                 {message.length > MAX_TEXT * 0.8 && <p className={`rs-count${message.length > MAX_TEXT ? " over" : ""}`}>{t("rpCount", { n: message.length })}</p>}
 
-                <input ref={fileRef} id="report-photo" className="rs-visually-hidden" type="file" accept="image/jpeg,image/png" capture="environment" onChange={choosePhoto} />
-                {photo && <img className="rs-photo" src={photo.url} alt={t("rpPhotoAlt")} />}
+                <input ref={fileRef} id="report-photo" name="photo" className="rs-visually-hidden" type="file" accept="image/jpeg,image/png" capture="environment" onChange={choosePhoto} />
+                {photo && <img className="rs-photo" src={photo.url} width={photo.width} height={photo.height} alt={t("rpPhotoAlt")} />}
                 <div className="rs-row">
                   <button type="button" className="rs-button rs-button-secondary" onClick={() => fileRef.current?.click()}>
                     <Camera size={22} weight="bold" aria-hidden="true" />{photo ? t("rpChangePhoto") : t("rpAddPhoto")}

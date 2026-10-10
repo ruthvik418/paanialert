@@ -62,7 +62,7 @@ function Passcode({ onKey }) {
         <h1>{t("pcTitle")}</h1>
         <p className="muted">{t("pcHelp")}</p>
         <label htmlFor="key">{t("pcLabel")}</label>
-        <input id="key" type="password" autoComplete="off" value={value} onChange={(e) => setValue(e.target.value)} required />
+        <input id="key" name="dashboard-key" type="password" autoComplete="off" spellCheck={false} value={value} onChange={(e) => setValue(e.target.value)} required />
         {error && <p className="error" role="alert">{t(error)}</p>}
         <button type="submit" disabled={busy || !value.trim()}>{busy ? t("pcChecking") : t("pcOpen")}</button>
         <a className="muted small" href="/public">{t("pcPublic")}</a>

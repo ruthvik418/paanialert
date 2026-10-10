@@ -87,7 +87,7 @@ export default function WarnMeToggle({ pin, replyLang, intro }) {
       {intro && <p className="rs-warnme-intro">{intro}</p>}
       <div className="rs-warnme-row">
         <label id="warn-me-label" htmlFor="warn-me" className="rs-warnme-title"><Icon size={26} weight={on ? "fill" : "bold"} aria-hidden="true" />{t("wmTitle")}</label>
-        <input id="warn-me" type="checkbox" role="switch" className="rs-switch" checked={on} disabled={busy || (!on && !place)}
+        <input id="warn-me" name="warn-me" type="checkbox" role="switch" className="rs-switch" checked={on} disabled={busy || (!on && !place)}
           aria-describedby="warn-me-help" onChange={toggle} />
       </div>
       <p className={`rs-hint${note ? " rs-hint-error" : ""}`} id="warn-me-help" aria-live="polite">

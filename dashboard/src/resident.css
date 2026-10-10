@@ -66,7 +66,7 @@
 .rs-banner-text { display: grid; gap: 4px; min-width: 0; }
 .rs-banner-kind { font-size: 15px; font-weight: 600; letter-spacing: .01em; opacity: .92; }
 .rs-banner-action { margin: 0; font-size: 22px; font-weight: 700; line-height: 1.35; }
-.rs-banner-text > p:not(.rs-banner-kind) { font-size: 17px; line-height: 1.55; }
+.rs-banner-text > p:not(.rs-banner-kind):not(.rs-banner-action) { font-size: 17px; line-height: 1.55; }
 .rs-banner-meta { display: flex; align-items: flex-start; gap: 8px; margin-top: 4px !important; font-size: 15px !important; opacity: .95; }
 .rs-banner-meta svg { flex: none; margin-top: 3px; }
 .rs-banner-meta time { font-weight: 600; }
@@ -100,6 +100,8 @@
 .rs-follow-label { font-size: 16px; font-weight: 600; }
 .rs-swatches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .rs-swatch { display: flex; min-height: 52px; align-items: center; gap: 12px; padding: 8px 12px; border: 2px solid var(--rs-line); border-radius: 10px; background: var(--rs-surface); color: var(--rs-ink); font-size: 17px; cursor: pointer; transition: border-color .15s; }
+.rs-swatch:hover { border-color: var(--rs-line-strong); }
+.rs-segment button:hover:not([aria-pressed="true"]) { color: var(--rs-ink); }
 .rs-swatch[aria-pressed="true"] { border-color: var(--rs-blue); font-weight: 600; }
 .rs-swatch-chip { flex: none; width: 28px; height: 28px; border: 1px solid rgba(27, 29, 28, .25); border-radius: 50%; background: var(--swatch); }
 .rs-segment { align-self: flex-start; }

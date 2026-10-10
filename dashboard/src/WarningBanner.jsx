@@ -77,7 +77,7 @@ export default function WarningBanner({ pin }) {
         <Icon className="rs-banner-icon" size={36} weight="fill" aria-hidden="true" />
         <div className="rs-banner-text">
           <p className="rs-banner-kind">{t(strict ? "warnDoNotUse" : "warnBoil")}</p>
-          <h2 id="area-warning-title" className="rs-banner-action">{t(strict ? "warnDoNotUseAction" : "warnBoilAction")}</h2>
+          <p id="area-warning-title" className="rs-banner-action">{t(strict ? "warnDoNotUseAction" : "warnBoilAction")}</p>
           <p>{t(strict ? "warnDoNotUseHow" : "warnBoilHow")}</p>
           <p className="rs-banner-meta"><Clock size={18} weight="bold" aria-hidden="true" /><span><time dateTime={a.created_at}>{t("warnIssuedAt", { time: since })}</time> {t("warnStays")}</span></p>
         </div>
