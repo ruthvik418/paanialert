@@ -26,7 +26,7 @@ from agent.reports import TurnContext, save_extracted
 from agent.runner import AgentUnavailable, reply as agent_reply
 from common import db
 from common.geo import geohash6
-from common.hashing import phone_hash
+from common.hashing import mask_number, normalise_number, phone_hash
 from common.places import area_name
 from common.twilio_send import send_whatsapp
 
@@ -146,6 +146,8 @@ def _handle_message(msg: dict, text: str, ph: str, state: dict, turns: list, lan
         phone_hash=ph, lang=lang, msg_lang=fallback.detect_lang(text) if text else None,
         lat=pending[0] if pending else None, lon=pending[1] if pending else None,
         photo_key=photo_key, audio_key=audio_key,
+        text=text or None, profile_name=(msg.get("ProfileName") or "").strip()[:80] or None,
+        phone_masked=mask_number(msg["From"]),
     )
 
     if not text:
@@ -159,6 +161,7 @@ def _handle_message(msg: dict, text: str, ph: str, state: dict, turns: list, lan
         answer = _keyword_reply(text, ctx)
 
     if ctx.saved:
+        db.put_contact(ph, normalise_number(msg["From"]))
         state["last_report_id"] = ctx.saved.report_id
         state.pop("pending_location", None)
         if ctx.saved.lat is None and "📍" not in answer:

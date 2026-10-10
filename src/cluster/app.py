@@ -59,7 +59,7 @@ def run() -> dict:
         matched.add(prev.cluster_id if prev else r.cluster_id)
         counts = dict(cells=r.cells, centre_lat=r.centre_lat, centre_lon=r.centre_lon, level=r.level,
                       report_count=r.report_count, distinct_phones=r.distinct_phones,
-                      sick_households=r.sick_households, severity=r.severity)
+                      sick_households=r.sick_households, severity=r.severity, report_ids=r.report_ids)
         if prev:
             cluster = replace(prev, **counts)   # keeps id, status, first_seen, alert and escalation times
         else:

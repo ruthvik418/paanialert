@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from typing import Any
 
 import boto3
@@ -138,6 +139,26 @@ def update_subscriber_lang(phone_hash: str, lang: str) -> None:
     except Exception as exc:
         if "ConditionalCheckFailed" not in str(exc):
             raise
+
+
+# Contacts: the full number behind a phone hash, for officials to call a reporter back.
+# Read only through POST /reports/{id}/contact, which writes an audit row first.
+
+def put_contact(phone_hash: str, phone: str) -> None:
+    _table("contacts").put_item(Item={"phone_hash": phone_hash, "phone": phone})
+
+
+def get_contact(phone_hash: str) -> str | None:
+    item = _table("contacts").get_item(Key={"phone_hash": phone_hash}).get("Item")
+    return item.get("phone") if item else None
+
+
+def put_audit(report_id: str, at_iso: str, ip: str, user_agent: str) -> None:
+    """Who saw a reporter's number: {audit_id, report_id, at, ip, user_agent}."""
+    _table("audit").put_item(Item={
+        "audit_id": uuid.uuid4().hex, "report_id": report_id, "at": at_iso,
+        "ip": ip or "unknown", "user_agent": (user_agent or "unknown")[:300],
+    })
 
 
 # Language preference per phone. Kept apart from Sessions, which expire after 24 hours.

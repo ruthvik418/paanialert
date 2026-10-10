@@ -49,6 +49,8 @@ Globals:
         SESSIONS_TABLE: !Ref SessionsTable
         PREFERENCES_TABLE: !Ref PreferencesTable
         PROCESSED_TABLE: !Ref ProcessedMessagesTable
+        CONTACTS_TABLE: !Ref ContactsTable
+        AUDIT_TABLE: !Ref AuditLogTable
         MEDIA_BUCKET: !Ref MediaBucket
         TWILIO_WHATSAPP_FROM: !Ref TwilioWhatsAppFrom
   HttpApi:
@@ -154,6 +156,24 @@ Resources:
         AttributeName: expires_at
         Enabled: true
 
+  ContactsTable:   # full number per phone hash, read only through the audited contact endpoint
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: phone_hash, AttributeType: S }
+      KeySchema:
+        - { AttributeName: phone_hash, KeyType: HASH }
+
+  AuditLogTable:   # one row each time an official reveals a reporter's number
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: audit_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: audit_id, KeyType: HASH }
+
   MediaBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -221,6 +241,9 @@ Resources:
             - Effect: Allow
               Action: [dynamodb:PutItem, dynamodb:DeleteItem]
               Resource: !GetAtt ProcessedMessagesTable.Arn
+            - Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt ContactsTable.Arn
         - SSMParameterReadPolicy: { ParameterName: paanialert/* }
         - Statement:
             - Effect: Allow
@@ -288,6 +311,16 @@ Resources:
         - DynamoDBCrudPolicy: { TableName: !Ref ClustersTable }
         - DynamoDBReadPolicy: { TableName: !Ref SubscribersTable }   # all-clear when a cluster is fixed
         - SSMParameterReadPolicy: { ParameterName: paanialert/* }
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:GetItem
+              Resource: !GetAtt ContactsTable.Arn
+            - Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt AuditLogTable.Arn
+            - Effect: Allow
+              Action: s3:GetObject          # presigned links to report photos
+              Resource: !Sub "${MediaBucket.Arn}/media/*"
       Events:
         Reports:
           Type: HttpApi
@@ -298,6 +331,12 @@ Resources:
         ClusterStatus:
           Type: HttpApi
           Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: "/clusters/{id}/status" }
+        ReportContact:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: "/reports/{id}/contact" }
+        ReportPhoto:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: "/reports/{id}/photo" }
         PublicClusters:
           Type: HttpApi
           Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /public/clusters }

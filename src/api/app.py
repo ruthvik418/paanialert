@@ -2,23 +2,32 @@
 
 Every route except /health and /public/* needs the x-dashboard-key header,
 which is checked against SSM /paanialert/dashboard_key.
+
+Reports carry the reporter's WhatsApp name and a masked number. The full number
+is only returned by POST /reports/{id}/contact, and each call is audited.
 """
 from __future__ import annotations
 
 import hmac
 import json
 import logging
+import os
 from dataclasses import asdict
+
+import boto3
+from botocore.config import Config
 
 from cluster.app import send_all_clear
 from common import db
-from common.config import secret
+from common.config import REGION, secret
 from common.timeutil import hours_ago_iso, now_iso
 
 log = logging.getLogger()
 log.setLevel(logging.INFO)
 
 STATUSES = {"acknowledged", "fixed", "false_alarm"}
+PHOTO_URL_SECONDS = 300
+_s3 = None
 
 
 def handler(event, context):
@@ -33,6 +42,10 @@ def handler(event, context):
         return clusters()
     if route == "POST /clusters/{id}/status":
         return set_status(event)
+    if route == "POST /reports/{id}/contact":
+        return contact(event)
+    if route == "GET /reports/{id}/photo":
+        return photo(event)
     return reply(404, {"error": f"No route {route}"})
 
 
@@ -51,6 +64,35 @@ def reports(event):
         row.pop("phone_hash", None)
         rows.append(row)
     return reply(200, {"reports": rows, "since": since})
+
+
+def contact(event):
+    """The reporter's full number. Every call is written to the AuditLog before the number is returned."""
+    report = db.get_report((event.get("pathParameters") or {}).get("id", ""))
+    phone = db.get_contact(report.phone_hash) if report else None
+    if not phone:
+        return reply(404, {"error": "No number on file for this report"})
+    http = (event.get("requestContext") or {}).get("http") or {}
+    headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
+    db.put_audit(report.report_id, now_iso(), http.get("sourceIp", ""),
+                 http.get("userAgent") or headers.get("user-agent", ""))
+    log.info("number shown for report %s", report.report_id)
+    return reply(200, {"report_id": report.report_id, "phone": phone})
+
+
+def photo(event):
+    """A link to the report's photo that works for 5 minutes."""
+    global _s3
+    report = db.get_report((event.get("pathParameters") or {}).get("id", ""))
+    if not report or not report.photo_key:
+        return reply(404, {"error": "No photo for this report"})
+    if _s3 is None:
+        _s3 = boto3.client("s3", region_name=REGION, config=Config(signature_version="s3v4"))
+    url = _s3.generate_presigned_url(
+        "get_object", Params={"Bucket": os.environ["MEDIA_BUCKET"], "Key": report.photo_key},
+        ExpiresIn=PHOTO_URL_SECONDS,
+    )
+    return reply(200, {"url": url, "expires_in": PHOTO_URL_SECONDS})
 
 
 def clusters():

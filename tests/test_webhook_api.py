@@ -151,3 +151,58 @@ def test_no_all_clear_unless_fixed_and_warned(aws, monkeypatch):
     _status("bbbbbb", "false_alarm")
     _status("cccccc", "fixed")
     assert sent == []
+
+
+def _saved_report(**ctx):
+    from agent.reports import TurnContext, save_extracted
+    from common import db
+
+    report = save_extracted(TurnContext(phone_hash="hash-1", lang="en", lat=22.7196, lon=75.8577,
+                                        text="paani mein badboo", profile_name="Ravi Kumar",
+                                        phone_masked="+91 98•••••210", **ctx), {"smell": "sewage"})
+    db.put_contact("hash-1", "+919876543210")
+    return report
+
+
+def test_full_number_only_from_the_audited_contact_route(aws):
+    import boto3
+
+    import cluster.app as cluster_app
+    from api.app import handler
+
+    report = _saved_report()
+    cluster_app.run()
+
+    rows = json.loads(handler(_api("GET /reports"), None)["body"])["reports"]
+    assert rows[0]["profile_name"] == "Ravi Kumar" and rows[0]["text"] == "paani mein badboo"
+    assert rows[0]["phone_masked"] == "+91 98•••••210"
+    for route in ("GET /reports", "GET /clusters", "GET /public/clusters"):
+        assert "9876543210" not in handler(_api(route), None)["body"]
+
+    path = {"pathParameters": {"id": report.report_id}}
+    assert handler(_api("POST /reports/{id}/contact", key=None, **path), None)["statusCode"] == 401
+    audit = boto3.resource("dynamodb", region_name="ap-south-1").Table("AuditLog")
+    assert audit.scan()["Items"] == []
+
+    event = _api("POST /reports/{id}/contact", **path,
+                 requestContext={"http": {"sourceIp": "203.0.113.7", "userAgent": "Firefox"}})
+    resp = handler(event, None)
+    assert resp["statusCode"] == 200 and json.loads(resp["body"])["phone"] == "+919876543210"
+    rows = audit.scan()["Items"]
+    assert len(rows) == 1 and rows[0]["report_id"] == report.report_id
+    assert rows[0]["ip"] == "203.0.113.7" and rows[0]["user_agent"] == "Firefox" and rows[0]["at"]
+
+    missing = handler(_api("POST /reports/{id}/contact", pathParameters={"id": "nope"}), None)
+    assert missing["statusCode"] == 404
+
+
+def test_photo_link_lasts_five_minutes(aws):
+    from api.app import handler
+
+    with_photo = _saved_report(photo_key="media/SM1.jpg")
+    without = _saved_report()
+    assert handler(_api("GET /reports/{id}/photo", key=None,
+                        pathParameters={"id": with_photo.report_id}), None)["statusCode"] == 401
+    body = json.loads(handler(_api("GET /reports/{id}/photo", pathParameters={"id": with_photo.report_id}), None)["body"])
+    assert "media/SM1.jpg" in body["url"] and "X-Amz-Expires=300" in body["url"] and body["expires_in"] == 300
+    assert handler(_api("GET /reports/{id}/photo", pathParameters={"id": without.report_id}), None)["statusCode"] == 404

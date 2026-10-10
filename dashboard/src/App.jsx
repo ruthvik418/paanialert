@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MapView, { PLACES } from "./MapView.jsx";
 import {
-  Unauthorised, getClusters, getPublicClusters, getReports, saveKey, savedKey, setClusterStatus,
+  NotFound, Unauthorised, getClusters, getContact, getPhotoUrl, getPublicClusters, getReports, saveKey, savedKey,
+  setClusterStatus,
 } from "./api.js";
 import { ago, describeReport, levelLabel, sickLabel, statusLabel } from "./format.js";
 import { LANGS, useLang } from "./i18n.js";
@@ -159,9 +160,13 @@ function Dashboard({ dashboardKey, onSignOut }) {
     lines: [describeReport(focusReport, t), focusReport.area, sickLabel(focusReport, t), ago(focusReport.created_at, t)],
   } : null;
 
+  function flyToReport(r) {
+    if (r.lat != null) setFocus({ key: `${r.report_id}-view-${Date.now()}`, id: r.report_id });
+  }
+
   function showReport(r) {
     setSelected({ type: "report", id: r.report_id });
-    if (r.lat != null) setFocus({ key: `${r.report_id}-view-${Date.now()}`, id: r.report_id });
+    flyToReport(r);
   }
 
   async function changeStatus(id, status) {
@@ -223,9 +228,10 @@ function Dashboard({ dashboardKey, onSignOut }) {
             <ul className="list">
               {sortedClusters.length === 0 && <Empty text={t("emptyClusters")} />}
               {sortedClusters.map((c) => (
-                <ClusterCard key={c.cluster_id} c={c}
+                <ClusterCard key={c.cluster_id} c={c} reports={reports} dashboardKey={dashboardKey}
                   selected={selected?.type === "cluster" && selected.id === c.cluster_id}
                   onSelect={() => setSelected({ type: "cluster", id: c.cluster_id })}
+                  onFocusReport={flyToReport}
                   onStatus={(s) => changeStatus(c.cluster_id, s)} />
               ))}
             </ul>
@@ -240,11 +246,8 @@ function Dashboard({ dashboardKey, onSignOut }) {
                 {visibleReports.map((r) => (
                   <li key={r.report_id} className={`card report ${selected?.type === "report" && selected.id === r.report_id ? "selected" : ""}`}
                     onClick={() => showReport(r)}>
-                    <div className="row"><strong>{describeReport(r, t)}</strong><span className="muted small">{ago(r.created_at, t)}</span></div>
-                    <div className="row small">
-                      <span className={(r.sick_count || 0) > 0 ? "sick" : "muted"}>{sickLabel(r, t)}</span>
-                      <span className="muted">{r.lat != null ? placeText(r) : t("noLocation")}{r.photo_key ? ` · ${t("photo")}` : ""}</span>
-                    </div>
+                    <ReportSummary r={r} placeText={placeText} />
+                    {selected?.type === "report" && selected.id === r.report_id && <ReportDetail r={r} dashboardKey={dashboardKey} />}
                   </li>
                 ))}
               </ul>
@@ -269,7 +272,130 @@ function Empty({ text }) {
   return <li className="empty">{text}</li>;
 }
 
-function ClusterCard({ c, selected, onSelect, onStatus }) {
+function ReportSummary({ r, placeText }) {
+  const { t } = useLang();
+  return (
+    <>
+      <div className="row"><strong>{describeReport(r, t)}</strong><span className="muted small">{ago(r.created_at, t)}</span></div>
+      <div className="row small">
+        <span className={(r.sick_count || 0) > 0 ? "sick" : "muted"}>{sickLabel(r, t)}</span>
+        <span className="muted">{r.lat != null ? placeText(r) : t("noLocation")}{r.photo_key ? ` · ${t("photo")}` : ""}</span>
+      </div>
+      <div className="muted small">
+        {r.profile_name || t("nameUnknown")}
+        {r.phone_masked && <> · <span className="num" translate="no">{r.phone_masked}</span></>}
+      </div>
+    </>
+  );
+}
+
+function ReportDetail({ r, dashboardKey }) {
+  const { t, lang } = useLang();
+  const [number, setNumber] = useState({ state: "hidden" }); // hidden | loading | shown | none | error
+  const [photo, setPhoto] = useState({ state: "none" });     // none | loading | ready | error
+
+  useEffect(() => {
+    setNumber({ state: "hidden" });
+    if (!r.photo_key) { setPhoto({ state: "none" }); return undefined; }
+    let live = true;
+    setPhoto({ state: "loading" });
+    getPhotoUrl(dashboardKey, r.report_id)
+      .then((url) => live && setPhoto({ state: "ready", url }))
+      .catch(() => live && setPhoto({ state: "error" }));
+    return () => { live = false; };
+  }, [r.report_id, r.photo_key, dashboardKey]);
+
+  async function reveal() {
+    setNumber({ state: "loading" });
+    try {
+      setNumber({ state: "shown", phone: await getContact(dashboardKey, r.report_id) });
+    } catch (err) {
+      setNumber({ state: err instanceof NotFound ? "none" : "error" });
+    }
+  }
+
+  const when = new Date(r.created_at).toLocaleString(lang === "hi" ? "hi-IN" : "en-IN", { dateStyle: "medium", timeStyle: "short" });
+  const extra = [
+    r.source && r.source !== "unknown" ? t(`source_${r.source}`) : null,
+    r.tds != null ? t("tdsValue", { n: r.tds }) : null,
+    r.landmark && r.landmark !== "TEST REPORT" ? r.landmark : null,
+  ].filter(Boolean);
+
+  return (
+    <div className="detail" onClick={(e) => e.stopPropagation()}>
+      <dl>
+        <dt>{t("reporter")}</dt>
+        <dd>{r.profile_name || <span className="muted">{t("nameUnknown")}</span>}</dd>
+        <dt>{t("number")}</dt>
+        <dd>
+          <div className="number-row" aria-live="polite">
+            {number.state === "shown"
+              ? <a className="num" href={`tel:${number.phone}`} translate="no">{number.phone}</a>
+              : <span className="num" translate="no">{r.phone_masked || "—"}</span>}
+            {["hidden", "loading", "error"].includes(number.state) && (
+              <button type="button" className="ghost" disabled={number.state === "loading"} onClick={reveal}>
+                {number.state === "loading" ? t("showingNumber") : t("showNumber")}
+              </button>
+            )}
+          </div>
+          {number.state === "none" && <p className="muted small">{t("noNumber")}</p>}
+          {number.state === "error" && <p className="error small">{t("numberError")}</p>}
+          <p className="muted small">{t("numberLogged")}</p>
+        </dd>
+        <dt>{t("message")}</dt>
+        <dd>
+          {r.text
+            ? <blockquote lang={r.lang === "hi" ? "hi" : r.lang === "hinglish" ? "hi-Latn" : undefined}>{r.text}</blockquote>
+            : <span className="muted">{t("noMessage")}</span>}
+        </dd>
+        <dt>{t("area")}</dt>
+        <dd>{r.area || (r.lat != null ? `${r.lat.toFixed(4)}, ${r.lon.toFixed(4)}` : t("noLocation"))}</dd>
+        <dt>{t("time")}</dt>
+        <dd>{when} <span className="muted">· {ago(r.created_at, t)}</span></dd>
+        <dt>{t("languageLabel")}</dt>
+        <dd>{t(`lang_${r.lang || "unknown"}`)}</dd>
+        <dt>{t("details")}</dt>
+        <dd>{[describeReport(r, t), sickLabel(r, t), ...extra].join(" · ")}</dd>
+      </dl>
+      {photo.state !== "none" && (
+        <div className="photo">
+          {photo.state === "ready" && <img src={photo.url} alt={t("photoAlt")} width="320" height="240" loading="lazy" />}
+          {photo.state === "loading" && <p className="muted small">{t("photoLoading")}</p>}
+          {photo.state === "error" && <p className="error small">{t("photoError")}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClusterReports({ c, reports, dashboardKey, onFocusReport }) {
+  const { t } = useLang();
+  const [open, setOpen] = useState(null);
+  const byId = useMemo(() => new Map(reports.map((r) => [r.report_id, r])), [reports]);
+  const ids = c.report_ids || [];
+  const rows = ids.map((id) => byId.get(id)).filter(Boolean).sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const missing = ids.length - rows.length;
+  const placeText = (r) => `📍 ${r.area || t("located").replace("📍 ", "")}`;
+
+  return (
+    <div className="cluster-reports" onClick={(e) => e.stopPropagation()}>
+      <p className="eyebrow">{t("clusterReports")}</p>
+      {ids.length === 0 && <p className="muted small">{t("clusterReportsNone")}</p>}
+      <ul className="list">
+        {rows.map((r) => (
+          <li key={r.report_id} className={`card report ${open === r.report_id ? "selected" : ""}`}
+            onClick={() => { setOpen(open === r.report_id ? null : r.report_id); onFocusReport(r); }}>
+            <ReportSummary r={r} placeText={placeText} />
+            {open === r.report_id && <ReportDetail r={r} dashboardKey={dashboardKey} />}
+          </li>
+        ))}
+      </ul>
+      {missing > 0 && <p className="muted small">{t("clusterReportsMissing", { n: missing })}</p>}
+    </div>
+  );
+}
+
+function ClusterCard({ c, reports, dashboardKey, selected, onSelect, onFocusReport, onStatus }) {
   const { t } = useLang();
   const [confirm, setConfirm] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -295,6 +421,7 @@ function ClusterCard({ c, selected, onSelect, onStatus }) {
         {t("firstReport", { ago: ago(c.first_seen, t) })}
         {c.alert_at ? ` · ${t("alertSent", { ago: ago(c.alert_at, t) })}` : ""}
         {c.escalated_at ? ` · ${t("escalated")}` : ""}
+        {c.reopen_count ? ` · ${t("reopened", { n: c.reopen_count })}` : ""}
       </p>
       {active && (
         <div className="actions" onClick={(e) => e.stopPropagation()}>
@@ -313,6 +440,7 @@ function ClusterCard({ c, selected, onSelect, onStatus }) {
           )}
         </div>
       )}
+      {selected && <ClusterReports c={c} reports={reports} dashboardKey={dashboardKey} onFocusReport={onFocusReport} />}
     </li>
   );
 }

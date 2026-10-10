@@ -34,3 +34,16 @@ def test_cluster_ignores_unknown_keys():
     cluster = from_item(Cluster, item)
     assert cluster.severity == 23.5
     assert cluster.status == "open"
+
+
+def test_old_report_without_reporter_details_still_loads():
+    old = {"report_id": "r0", "phone_hash": "abc", "created_at": "2026-10-01T10:00:00Z", "smell": "sewage"}
+    report = from_item(Report, old)
+    assert report.text is None and report.profile_name is None and report.phone_masked is None
+
+
+def test_mask_number():
+    from common.hashing import mask_number
+
+    assert mask_number("whatsapp:+919876543210") == "+91 98•••••210"
+    assert mask_number("+14155238886") == "+14•••••886"

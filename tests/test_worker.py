@@ -147,3 +147,21 @@ def test_failed_message_can_be_retried(worker, monkeypatch):
         worker.handle(msg)
     assert worker.handle(dict(msg))                          # the SQS retry is not skipped
     assert len(calls) == 2
+
+
+def test_report_keeps_name_text_and_masked_number_but_not_the_number(worker):
+    import boto3
+
+    from common import db
+    from common.hashing import phone_hash
+
+    body = "Nal ka paani peela aa raha hai, badboo hai"
+    worker.handle({"From": PHONE, "Body": body, "ProfileName": "Sunita Verma", "MessageSid": "SMname1"})
+    report = db.get_report(db.get_session(phone_hash(PHONE))["last_report_id"])
+    assert report.text == body and report.profile_name == "Sunita Verma"
+    assert report.phone_masked == "+91 98•••••210"
+    assert "9876543210" not in repr(report)
+    assert db.get_contact(phone_hash(PHONE)) == "+919876543210"
+
+    items = boto3.resource("dynamodb", region_name="ap-south-1").Table("Reports").scan()["Items"]
+    assert "9876543210" not in repr(items)

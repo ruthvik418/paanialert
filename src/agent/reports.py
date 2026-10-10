@@ -30,6 +30,9 @@ class TurnContext:
     lon: float | None = None
     photo_key: str | None = None
     audio_key: str | None = None
+    text: str | None = None         # original message, stored on the report for officials
+    profile_name: str | None = None
+    phone_masked: str | None = None
     saved: Report | None = field(default=None)
 
 
@@ -60,6 +63,9 @@ def save_extracted(ctx: TurnContext, fields: dict[str, Any]) -> Report:
         photo_key=ctx.photo_key,
         audio_key=ctx.audio_key,
         lang=ctx.msg_lang or ctx.lang,
+        text=ctx.text[:1000] if ctx.text else None,
+        profile_name=ctx.profile_name,
+        phone_masked=ctx.phone_masked,
         **clean,
     )
     db.put_report(report)

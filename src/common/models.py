@@ -41,6 +41,9 @@ class Report:
     lang: str = "unknown"            # "hi", "en" or "hinglish"
     source: Source = "unknown"
     tds: int | None = None           # mg/L, only after the user confirms the reading
+    text: str | None = None          # the resident's original message, up to 1000 characters
+    profile_name: str | None = None  # WhatsApp profile name (Twilio ProfileName)
+    phone_masked: str | None = None  # e.g. "+91 98•••••210"; the full number is only in Contacts
 
 
 @dataclass
@@ -63,6 +66,7 @@ class Cluster:
     status_at: str | None = None     # when status last changed (set by the API, or on reopening)
     reopened_at: str | None = None   # last time new complaints reopened it after fixed / false_alarm
     reopen_count: int = 0
+    report_ids: list[str] = field(default_factory=list)   # the reports in it at the last check
 
 
 T = TypeVar("T", Report, Cluster)

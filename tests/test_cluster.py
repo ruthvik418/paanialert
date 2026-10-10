@@ -139,6 +139,7 @@ def test_moving_outbreak_alerts_once(check):
     live = [c for c in db.all_clusters() if c.status != "expired"]
     assert [c.cluster_id for c in live] == [first.cluster_id]
     assert live[0].distinct_phones == 12 and live[0].alert_at == first.alert_at
+    assert len(live[0].report_ids) == 12
     assert len(check.sent) == 1 and len(check.published) == 1
 
 
