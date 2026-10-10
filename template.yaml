@@ -24,6 +24,14 @@ Parameters:
     Type: String
     Default: us-west-2
     Description: Region for runtime (Converse) model calls only
+  ClaudeModel:
+    Type: String
+    Default: claude-haiku-5-5
+    Description: Used only if SSM /paanialert/anthropic_api_key exists and Bedrock doesn't answer
+  GeminiModel:
+    Type: String
+    Default: gemini-2.5-flash
+    Description: Used only if SSM /paanialert/gemini_api_key exists and Bedrock doesn't answer
   BedrockRoleArn:
     Type: String
     Default: ""
@@ -251,6 +259,8 @@ Resources:
           MODEL_IDS: !Ref ModelIds
           BEDROCK_ROLE_ARN: !Ref BedrockRoleArn
           BEDROCK_REGION: !Ref BedrockRegion
+          CLAUDE_MODEL: !Ref ClaudeModel
+          GEMINI_MODEL: !Ref GeminiModel
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref ReportsTable }
         - DynamoDBCrudPolicy: { TableName: !Ref ClustersTable }

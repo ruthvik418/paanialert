@@ -89,7 +89,7 @@ def test_false_saved_reply_moves_to_the_next_model(mantle, caplog):
     with caplog.at_level(logging.WARNING, logger="agent.runner"):
         reply(COMPLAINT, ctx, [])
     assert ctx.saved.extracted_by == "agent:model-b"
-    assert "model model-a failed: reply says the report was saved" in caplog.text
+    assert "model bedrock:model-a failed: reply says the report was saved" in caplog.text
 
 
 def test_malformed_tool_call_moves_to_the_next_model(mantle, caplog):
@@ -105,7 +105,7 @@ def test_malformed_tool_call_moves_to_the_next_model(mantle, caplog):
         reply(COMPLAINT, ctx, [])
     assert ctx.saved.extracted_by == "agent:model-b"
     assert len(db.recent_reports("2000-01-01T00:00:00Z")) == 1           # the empty call saved nothing
-    assert "model model-a failed: save_report called with no fields" in caplog.text
+    assert "model bedrock:model-a failed: save_report called with no fields" in caplog.text
 
 
 def test_greeting_needs_no_save(mantle):

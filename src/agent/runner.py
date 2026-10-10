@@ -1,7 +1,9 @@
-"""Runs the Strands agent on Amazon Bedrock for one incoming message. Owner: B.
+"""Runs the Strands agent for one incoming message. Owner: B.
 
-Models are tried in MODEL_IDS order (comma-separated). A model counts as failed,
-and the next one is tried, if it errors, makes a malformed save_report call, or
+Order tried: the Bedrock models in MODEL_IDS, then Claude and Gemini through
+their own APIs, but only if their key is stored in SSM (/paanialert/
+anthropic_api_key, /paanialert/gemini_api_key). A model counts as failed, and
+the next one is tried, if it errors, makes a malformed save_report call, or
 answers a complaint without saving it. If every model fails, the caller falls
 back to keyword extraction (agent/fallback.py), so a complaint is never lost.
 
@@ -45,6 +47,8 @@ BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "us-west-2")
 BEDROCK_ROLE_ARN = os.environ.get("BEDROCK_ROLE_ARN", "")
 # Open models on Bedrock handle tool calls more reliably without streaming.
 STREAMING = os.environ.get("BEDROCK_STREAMING", "false").lower() == "true"
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-5-5")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 _UNSAFE_WORD = re.compile(r"\b(safe|surakshit)\b|सुरक्षित", re.I)
 # A reply that tells the person their report is in, e.g. "Your report is saved" / "रिपोर्ट दर्ज हो गई".
@@ -52,6 +56,7 @@ _CLAIMS_SAVED = re.compile(
     r"\b(saved|recorded|registered|logged|save (ho|kar)\w*|darj|note kar\w*)\b|दर्ज|सेव|नोट कर", re.I
 )
 _session_cache: dict[str, object] = {}
+_key_checks: dict[str, tuple[float, str | None]] = {}
 
 
 class AgentUnavailable(Exception):
@@ -88,6 +93,43 @@ def model(model_id: str) -> BedrockModel | OpenAIModel:
         )
     return BedrockModel(boto_session=_boto_session(), model_id=model_id, temperature=0.2,
                         max_tokens=600, streaming=STREAMING)
+
+
+def _stored_key(name: str) -> str | None:
+    """Our own API key for a non-AWS provider, from SSM. A missing key is re-checked every 5 minutes."""
+    checked = _key_checks.get(name)
+    if checked and checked[0] > time.time() - 300:
+        return checked[1]
+    try:
+        from common.config import secret
+        value = secret(name)
+    except Exception:
+        value = None
+    _key_checks[name] = (time.time(), value)
+    return value
+
+
+def candidates() -> list[str]:
+    """Model labels ("provider:model") in the order to try them."""
+    found = [f"bedrock:{m}" for m in MODEL_IDS]
+    if _stored_key("anthropic_api_key"):
+        found.append(f"anthropic:{CLAUDE_MODEL}")
+    if _stored_key("gemini_api_key"):
+        found.append(f"gemini:{GEMINI_MODEL}")
+    return found
+
+
+def build(label: str):
+    provider, model_id = label.split(":", 1)
+    if provider == "bedrock":
+        return model(model_id)
+    if provider == "anthropic":
+        from strands.models.anthropic import AnthropicModel
+        return AnthropicModel(client_args={"api_key": _stored_key("anthropic_api_key")},
+                              model_id=model_id, max_tokens=600, params={"temperature": 0.2})
+    from strands.models.gemini import GeminiModel
+    return GeminiModel(client_args={"api_key": _stored_key("gemini_api_key")},
+                       model_id=model_id, params={"temperature": 0.2, "max_output_tokens": 600})
 
 
 def _tools(ctx: TurnContext, model_id: str, problems: list[str]):
@@ -193,11 +235,12 @@ def reply(text: str, ctx: TurnContext, turns: list[dict[str, str]]) -> str:
     notes.append(f"[Reply in {LANGUAGES.get(ctx.lang, LANGUAGES['en'])}]")
     prompt = (text + " " + " ".join(notes)).strip()
 
-    for model_id in MODEL_IDS:
+    for label in candidates():
+        model_id = label.split(":", 1)[1]
         problems: list[str] = []
         try:
             agent = Agent(
-                model=model(model_id),
+                model=build(label),
                 system_prompt=SYSTEM_PROMPT,
                 tools=_tools(ctx, model_id, problems),
                 messages=_history(turns),
@@ -206,11 +249,11 @@ def reply(text: str, ctx: TurnContext, turns: list[dict[str, str]]) -> str:
             answer = str(agent(prompt)).strip()
             problems += _tool_errors(agent.messages)
         except Exception as exc:
-            log.warning("model %s failed: %s: %s", model_id, type(exc).__name__, str(exc)[:300])
+            log.warning("model %s failed: %s: %s", label, type(exc).__name__, str(exc)[:300])
             continue
         problem = _problem(answer, text, ctx, problems)
         if problem is None:
-            log.info("model %s answered%s", model_id, " and saved a report" if ctx.saved else "")
+            log.info("answered by %s%s", label, " and saved a report" if ctx.saved else "")
             return guard(answer, ctx.lang)
-        log.warning("model %s failed: %s", model_id, problem)
-    raise AgentUnavailable("no Bedrock model answered")
+        log.warning("model %s failed: %s", label, problem)
+    raise AgentUnavailable("no model answered")

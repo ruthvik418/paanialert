@@ -3,3 +3,6 @@
 strands-agents[openai]   # OpenAIModel for the bedrock-mantle endpoint
 twilio
 requests
+# Fallback providers if Bedrock is unavailable (keys in SSM; see docs/ai-providers.md)
+anthropic
+google-genai

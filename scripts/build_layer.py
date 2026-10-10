@@ -10,7 +10,9 @@ packages, and download Linux wheels explicitly. Works on Windows, macOS and Linu
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -41,11 +43,20 @@ def resolve() -> list[str]:
     return sorted(pins, key=str.lower)
 
 
+def remove(path: Path) -> None:
+    """rmtree that also clears Windows read-only flags (OneDrive sets them)."""
+    def clear_and_retry(func, target, _exc):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+
+    if path.exists():
+        shutil.rmtree(path, onexc=clear_and_retry)
+
+
 def main() -> None:
     pins = resolve()
     print(f"Resolved {len(pins)} packages")
-    if TARGET.parent.exists():
-        shutil.rmtree(TARGET.parent)
+    remove(TARGET.parent)
     TARGET.mkdir(parents=True)
     platform_args = [arg for p in PLATFORMS for arg in ("--platform", p)]
     pip("install", "--quiet", "--no-deps", "--only-binary=:all:", *platform_args,
