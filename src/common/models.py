@@ -60,6 +60,9 @@ class Cluster:
     first_seen: str = ""
     alert_at: str | None = None
     escalated_at: str | None = None
+    status_at: str | None = None     # when status last changed (set by the API, or on reopening)
+    reopened_at: str | None = None   # last time new complaints reopened it after fixed / false_alarm
+    reopen_count: int = 0
 
 
 T = TypeVar("T", Report, Cluster)

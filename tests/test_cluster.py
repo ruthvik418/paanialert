@@ -152,3 +152,40 @@ def test_acknowledged_cluster_stays_acknowledged_as_it_grows(check):
     c = db.get_cluster(first.cluster_id)
     assert c.status == "acknowledged" and c.distinct_phones == 12
     assert summary["expired"] == 0 and len(check.sent) == 1
+
+
+@pytest.mark.parametrize("closed_as", ["fixed", "false_alarm"])
+def test_new_complaints_after_a_fix_reopen_and_alert_again(check, closed_as):
+    from common import db
+    from common.timeutil import iso, now
+
+    _put_recent([report(i) for i in range(5)])
+    db.put_subscriber("sub1", "whatsapp:+919800000001", geohash6(*INDORE), "en")
+    check.run()
+    cid = db.all_clusters()[0].cluster_id
+    db.update_cluster_status(cid, closed_as, iso(now() - timedelta(minutes=30)))
+
+    assert check.run()["reopened"] == 0 and db.get_cluster(cid).status == closed_as   # nothing new yet
+
+    late = report(50)
+    late.created_at = iso(now() - timedelta(minutes=10))
+    db.put_report(late)
+    summary = check.run()
+    c = db.get_cluster(cid)
+    assert summary["reopened"] == 1 and c.status == "open" and c.reopen_count == 1 and c.reopened_at
+    assert len(check.sent) == 2 and c.alert_at                                          # alerted again
+    assert check.run()["reopened"] == 0                                                 # only once
+
+
+def test_cluster_closed_without_a_status_time_stays_closed(check):
+    from common import db
+    from common.models import Cluster
+    from common.timeutil import iso, now
+
+    _put_recent([report(i) for i in range(5)])
+    result = evaluate(db.recent_reports("2000-01-01T00:00:00Z"), now())[0]
+    db.put_cluster(Cluster(cluster_id=result.cluster_id, cells=result.cells, centre_lat=0, centre_lon=0,
+                           level="alert", report_count=5, distinct_phones=5, sick_households=0, severity=25,
+                           status="fixed", first_seen=result.first_seen, alert_at=iso(now())))
+    assert check.run()["reopened"] == 0 and db.get_cluster(result.cluster_id).status == "fixed"
+    assert check.sent == []

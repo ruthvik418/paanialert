@@ -8,11 +8,14 @@
 - One outbreak keeps one cluster: a result that overlaps an open or acknowledged
   cluster continues it (same id, status and alert time), even when its strongest
   cell moves.
+- Fixed or false alarm, but new complaints in its cells since: reopened, and
+  alerted again like a new outbreak.
 """
 from __future__ import annotations
 
 import logging
 import os
+from dataclasses import replace
 from datetime import timedelta
 
 import boto3
@@ -44,7 +47,8 @@ def run() -> dict:
     notices = active_notice_cells(iso(current))
     results = evaluate(reports, current, notices)
     existing = db.all_clusters()
-    summary = {"reports": len(reports), "clusters": len(results), "alerted": 0, "escalated": 0, "expired": 0}
+    summary = {"reports": len(reports), "clusters": len(results), "alerted": 0, "escalated": 0, "expired": 0,
+               "reopened": 0}
     matched: set[str] = set()
 
     for r in results:
@@ -53,16 +57,19 @@ def run() -> dict:
             log.warning("cluster id %s already taken this run; skipped", r.cluster_id)
             continue
         matched.add(prev.cluster_id if prev else r.cluster_id)
-        cluster = Cluster(
-            cluster_id=prev.cluster_id if prev else r.cluster_id, cells=r.cells,
-            centre_lat=r.centre_lat, centre_lon=r.centre_lon,
-            level=r.level, report_count=r.report_count, distinct_phones=r.distinct_phones,
-            sick_households=r.sick_households, severity=r.severity,
-            status=prev.status if prev else "open",
-            first_seen=prev.first_seen if prev else r.first_seen,
-            alert_at=prev.alert_at if prev else None,
-            escalated_at=prev.escalated_at if prev else None,
-        )
+        counts = dict(cells=r.cells, centre_lat=r.centre_lat, centre_lon=r.centre_lon, level=r.level,
+                      report_count=r.report_count, distinct_phones=r.distinct_phones,
+                      sick_households=r.sick_households, severity=r.severity)
+        if prev:
+            cluster = replace(prev, **counts)   # keeps id, status, first_seen, alert and escalation times
+        else:
+            cluster = Cluster(cluster_id=r.cluster_id, first_seen=r.first_seen, **counts)
+        if prev and complaints_since_closed(prev, reports):
+            cluster.status, cluster.status_at, cluster.reopened_at = "open", iso(current), iso(current)
+            cluster.reopen_count += 1
+            cluster.alert_at = cluster.escalated_at = None    # alert again like a new outbreak
+            log.info("reopened %s after new complaints", cluster.cluster_id)
+            summary["reopened"] += 1
         if cluster.level == "alert" and cluster.alert_at is None and cluster.status == "open":
             cluster.alert_at = iso(current)
             send_alerts(cluster)
@@ -88,18 +95,33 @@ def run() -> dict:
 def match(r, existing: list[Cluster], taken: set[str]) -> Cluster | None:
     """The stored cluster this result continues, so one outbreak keeps one id as its strongest cell moves.
 
-    An open or acknowledged cluster whose cells overlap wins (the oldest if several);
-    otherwise a closed cluster with the same id carries on as before.
+    An open or acknowledged cluster whose cells overlap wins (the oldest if several).
+    Otherwise a fixed or false-alarm one that overlaps (the same id first, then the
+    most recently closed): it stays closed unless complaints_since_closed().
     """
     cells = set(r.cells)
-    live = [c for c in existing if c.cluster_id not in taken
-            and c.status in ("open", "acknowledged") and cells.intersection(c.cells)]
+    overlapping = [c for c in existing if c.cluster_id not in taken and cells.intersection(c.cells)]
+    live = [c for c in overlapping if c.status in ("open", "acknowledged")]
     if live:
         return min(live, key=lambda c: (c.first_seen or "", c.cluster_id))
-    same = next((c for c in existing if c.cluster_id == r.cluster_id), None)
-    if same and same.cluster_id not in taken and same.status != "expired":
-        return same
+    # Clusters closed before status_at was stored only continue under their own id, as before,
+    # so they can't swallow a new outbreak nearby that should alert.
+    closed = [c for c in overlapping if c.status in ("fixed", "false_alarm")
+              and (c.status_at or c.cluster_id == r.cluster_id)]
+    if closed:
+        return max(closed, key=lambda c: (c.cluster_id == r.cluster_id, c.status_at or "", c.cluster_id))
     return None
+
+
+def complaints_since_closed(c: Cluster, reports) -> bool:
+    """A fixed or false-alarm cluster with a report in its cells after its status was set.
+
+    Clusters closed before status_at was kept have none, and are never reopened.
+    """
+    if c.status not in ("fixed", "false_alarm") or not c.status_at:
+        return False
+    cells = set(c.cells)
+    return any(r.geohash6 in cells and r.created_at > c.status_at for r in reports)
 
 
 def send_alerts(c: Cluster) -> None:
