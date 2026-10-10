@@ -241,3 +241,21 @@ def put_session(phone_hash: str, state: dict[str, Any]) -> None:
         "state_json": json.dumps(state, ensure_ascii=False),
         "expires_at": int(time.time()) + 24 * 3600,
     })
+
+
+# App quota: how many reports each web-app device sent today (UTC), so one device can't flood the map
+
+def take_app_quota(device_hash: str, day: str, limit: int) -> bool:
+    """Count one report for this device today; False once it already has `limit`. Rows expire after 2 days."""
+    try:
+        _table("app_quota").update_item(
+            Key={"quota_id": f"{device_hash}#{day}"},
+            UpdateExpression="ADD sent :one SET expires_at = :exp",
+            ConditionExpression="attribute_not_exists(sent) OR sent < :limit",
+            ExpressionAttributeValues={":one": 1, ":limit": limit, ":exp": int(time.time()) + 2 * 24 * 3600},
+        )
+        return True
+    except Exception as exc:
+        if "ConditionalCheckFailed" in str(exc):
+            return False
+        raise

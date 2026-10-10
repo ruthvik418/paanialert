@@ -33,6 +33,7 @@ class TurnContext:
     text: str | None = None         # original message, stored on the report for officials
     profile_name: str | None = None
     phone_masked: str | None = None
+    channel: str = "whatsapp"      # "whatsapp" or "app" (the web report page)
     saved: Report | None = field(default=None)
 
 
@@ -70,6 +71,7 @@ def save_extracted(ctx: TurnContext, fields: dict[str, Any], extracted_by: str) 
         profile_name=ctx.profile_name,
         phone_masked=ctx.phone_masked,
         extracted_by=extracted_by,
+        channel=ctx.channel,
         **clean,
     )
     db.put_report(report)

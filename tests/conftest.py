@@ -22,6 +22,7 @@ os.environ.update({
     "CONTACTS_TABLE": "Contacts",
     "AUDIT_TABLE": "AuditLog",
     "ACTIVITY_TABLE": "Activity",
+    "APP_QUOTA_TABLE": "AppQuota",
     "MEDIA_BUCKET": "media-test",
     "AREA_LOOKUP": "off",
 })
@@ -75,6 +76,7 @@ def aws():
         _table(ddb, "Contacts", "phone_hash")
         _table(ddb, "AuditLog", "audit_id")
         _table(ddb, "Activity", "activity_id")
+        _table(ddb, "AppQuota", "quota_id")
 
         ssm = boto3.client("ssm", region_name="ap-south-1")
         for name, value in SECRETS.items():

@@ -9,8 +9,10 @@ from common.config import secret
 
 
 def normalise_number(raw: str) -> str:
-    """'whatsapp:+91 98765 43210' -> '+919876543210'."""
+    """'whatsapp:+91 98765 43210' -> '+919876543210'. Web app senders ('app:<device uuid>') are kept as they are."""
     number = raw.strip()
+    if number.lower().startswith("app:"):
+        return number.lower()
     if number.lower().startswith("whatsapp:"):
         number = number[len("whatsapp:"):]
     return "".join(ch for ch in number if ch.isdigit() or ch == "+")

@@ -38,15 +38,18 @@ function toGeoJSON(items, props) {
 }
 
 // `focus` = {key, lon, lat, title, lines}: fly there and open a card. A new key re-triggers it.
-export default function MapView({ reports = [], clusters = [], place = "all", label = "Map", focus, onSelectCluster, onSelectReport }) {
+// Pick mode (the report page): `onPick({lat, lon})` on a tap or the "use map centre" button,
+// `pin` = {lat, lon, fly} shows a marker there (and flies to it when fly is true).
+export default function MapView({ reports = [], clusters = [], place = "all", label = "Map", focus, onSelectCluster, onSelectReport, onPick, pin, pickCentreLabel }) {
   const box = useRef(null);
   const [mapFailed, setMapFailed] = useState(false);
   const map = useRef(null);
   const popup = useRef(null);
   const ready = useRef(false);
   const fitted = useRef(false);
-  const latest = useRef({ reports, clusters, place, onSelectCluster, onSelectReport });
-  latest.current = { reports, clusters, place, onSelectCluster, onSelectReport };
+  const marker = useRef(null);
+  const latest = useRef({ reports, clusters, place, onSelectCluster, onSelectReport, onPick });
+  latest.current = { reports, clusters, place, onSelectCluster, onSelectReport, onPick };
 
   useEffect(() => {
     const m = new maplibregl.Map({
@@ -81,6 +84,7 @@ export default function MapView({ reports = [], clusters = [], place = "all", la
           "circle-stroke-width": ["case", ["get", "sick"], 3, 1.5],
         },
       });
+      m.on("click", (e) => latest.current.onPick?.({ lat: e.lngLat.lat, lon: e.lngLat.lng }));
       m.on("click", "clusters", (e) => latest.current.onSelectCluster?.(e.features[0].properties.cluster_id));
       m.on("click", "reports", (e) => latest.current.onSelectReport?.(e.features[0].properties.report_id));
       for (const id of ["clusters", "reports"]) {
@@ -132,7 +136,23 @@ export default function MapView({ reports = [], clusters = [], place = "all", la
     if (ready.current) show(); else m.once("load", show);
   }, [focus?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <><div ref={box} className="map" role="region" aria-label={label} />{mapFailed && <div className="map-provider-error" role="status"><strong>Map tiles unavailable</strong><span>Use the incident list to review locations while the map service is unavailable.</span></div>}</>;
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    if (!pin) { marker.current?.remove(); marker.current = null; return; }
+    if (!marker.current) marker.current = new maplibregl.Marker({ color: "#56b7a7" });
+    marker.current.setLngLat([pin.lon, pin.lat]).addTo(m);
+    if (pin.fly) m.flyTo({ center: [pin.lon, pin.lat], zoom: Math.max(m.getZoom(), 15), duration: 900 });
+  }, [pin?.lat, pin?.lon, pin?.fly]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function pickCentre() {
+    const c = map.current?.getCenter();
+    if (c) onPick?.({ lat: c.lat, lon: c.lng });
+  }
+
+  return <><div ref={box} className="map" role="region" aria-label={label} />
+    {onPick && pickCentreLabel && <span className="map-crosshair" aria-hidden="true" />}
+    {onPick && pickCentreLabel && <button type="button" className="map-pick-centre" onClick={pickCentre}>{pickCentreLabel}</button>}{mapFailed && <div className="map-provider-error" role="status"><strong>Map tiles unavailable</strong><span>Use the incident list to review locations while the map service is unavailable.</span></div>}</>;
 }
 
 const reportProps = {

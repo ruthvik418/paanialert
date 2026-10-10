@@ -226,6 +226,63 @@ a { color: inherit; text-decoration: none; }
 .maplibregl-ctrl-group button { filter: invert(.83) hue-rotate(125deg); }
 .maplibregl-ctrl-attrib { color: #26322f !important; }
 
+/* Web report app (/report): mobile first, 16 px text so iOS doesn't zoom inputs, 48 px touch targets */
+.report-page { min-height: 100dvh; background: var(--bg); font-size: 16px; line-height: 1.5; -webkit-tap-highlight-color: transparent; }
+.report-page button, .report-page a { touch-action: manipulation; }
+.report-top { position: sticky; z-index: 5; top: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+  padding: max(8px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--line); background: #101615; }
+.report-top .brand { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0; font-size: 17px; font-weight: 600; }
+.report-langs { display: flex; border: 1px solid var(--line); }
+.report-langs button { min-width: 44px; min-height: 44px; padding: 0 10px; border: 0; background: transparent; color: var(--muted); font-size: 15px; cursor: pointer; transition: background-color .15s, color .15s; }
+.report-langs button + button { border-left: 1px solid var(--line); }
+.report-langs button[aria-pressed="true"] { background: var(--teal-dim); color: var(--ink); }
+.report-main { width: 100%; max-width: 560px; margin: 0 auto; padding: 18px max(16px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.report-main h1 { margin: 0 0 6px; font-size: 26px; font-weight: 600; letter-spacing: -.02em; line-height: 1.2; text-wrap: balance; }
+.report-intro { margin: 0 0 20px; color: var(--muted); }
+.report-form { display: flex; flex-direction: column; gap: 22px; }
+.report-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.report-field > label, .report-field > legend { padding: 0; font-size: 17px; font-weight: 600; }
+.report-hint { margin: 0; color: var(--muted); font-size: 14px; }
+.report-hint .num, .report-count { font-variant-numeric: tabular-nums; }
+.report-page textarea { width: 100%; min-height: 128px; padding: 12px; resize: vertical; border: 1px solid #41504d; border-radius: 0; background: #0f1615; color: var(--ink); font: inherit; font-size: 16px; }
+.report-page textarea::placeholder { color: var(--faint); }
+.report-page textarea:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
+.report-page textarea[aria-invalid="true"] { border-color: var(--red); }
+.report-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.report-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.report-chips button { min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 22px; background: var(--raised); color: var(--ink); font-size: 15px; cursor: pointer; transition: border-color .15s, background-color .15s; }
+.report-chips button:hover, .report-chips button:active { border-color: var(--teal); background: var(--teal-dim); }
+.report-count { color: var(--faint); font-size: 13px; }
+.report-count.over { color: var(--red); }
+.report-error { margin: 0; color: var(--red); font-size: 15px; }
+.report-error::before { content: "! "; font-weight: 700; }
+.report-send-error { padding: 12px; border: 1px solid var(--red-dim); background: #1e1312; }
+.report-primary, .report-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 0 20px; border: 1px solid var(--teal); font-size: 17px; font-weight: 600; cursor: pointer; transition: background-color .15s, border-color .15s; }
+.report-primary { width: 100%; background: var(--teal); color: #08100f; }
+.report-primary:hover:not(:disabled), .report-primary:active:not(:disabled) { background: #6fcab9; }
+.report-secondary { min-height: 48px; background: var(--teal-dim); color: var(--ink); font-size: 16px; }
+.report-secondary:hover:not(:disabled), .report-secondary:active:not(:disabled) { background: #1e5049; }
+.report-text-button { min-height: 44px; padding: 0 8px; border: 0; background: transparent; color: var(--muted); text-decoration: underline; cursor: pointer; }
+.report-map { position: relative; height: 260px; border: 1px solid var(--line); overflow: hidden; overscroll-behavior: contain; }
+.report-map .map { position: absolute; inset: 0; }
+.map-crosshair { position: absolute; top: 50%; left: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%); border: 2px solid rgba(237, 242, 241, .7); border-radius: 50%; pointer-events: none; }
+.map-pick-centre { position: absolute; bottom: 10px; left: 10px; min-height: 44px; padding: 0 12px; border: 1px solid #41504d; background: rgba(16, 22, 21, .92); color: var(--ink); font-size: 14px; cursor: pointer; }
+.report-photo { display: block; width: 100%; max-height: 260px; object-fit: contain; border: 1px solid var(--line); background: #0a0f0e; }
+.spinner { width: 18px; height: 18px; border: 2px solid rgba(8, 16, 15, .3); border-top-color: #08100f; border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.report-result { display: flex; flex-direction: column; gap: 14px; outline: none; }
+.report-card { padding: 14px 16px; border: 1px solid var(--line); background: var(--surface); }
+.report-card.ok { border-color: var(--teal); background: #10201d; }
+.report-card h2 { margin: 0 0 6px; color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.report-card p { margin: 0; }
+.report-card p + p { margin-top: 10px; }
+.report-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--teal); text-decoration: underline; }
+.report-cta { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 12px; background: var(--teal); color: #08100f; font-weight: 600; white-space: nowrap; }
+.report-cta:hover { background: #6fcab9; }
+.report-cta.wide { min-height: 48px; font-size: 15px; }
+.app-tag { margin-left: 6px; font-size: 12px; }
+
 @media (min-width: 1500px) and (min-height: 850px) {
   .dashboard-content { gap: 14px; padding-top: 20px; }
   .map-section { min-height: 410px; }

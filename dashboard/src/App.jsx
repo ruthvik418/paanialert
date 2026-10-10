@@ -4,12 +4,14 @@ import { Unauthorised, getClusters, getPublicClusters, saveKey, savedKey } from 
 import { ago, levelLabel } from "./format.js";
 import { LANGS, useLang } from "./i18n.js";
 import OperationsDashboard from "./OperationsDashboard.jsx";
+import ReportPage from "./ReportPage.jsx";
 
 const POLL_MS = 30000;
 
 export default function App() {
-  const isPublic = window.location.pathname.replace(/\/$/, "") === "/public";
-  return isPublic ? <PublicPage /> : <OfficialsApp />;
+  const path = window.location.pathname.replace(/\/$/, "");
+  if (path === "/report") return <ReportPage />;
+  return path === "/public" ? <PublicPage /> : <OfficialsApp />;
 }
 
 function LanguageSwitch() {
@@ -106,7 +108,7 @@ function PublicPage() {
       <header className="topbar">
         <div className="brand"><span className="drop" aria-hidden="true" />PaaniAlert <span className="muted">{t("public")}</span></div>
         <PlaceSwitch place={place} setPlace={setPlace} />
-        <div className="topbar-right"><LanguageSwitch /></div>
+        <div className="topbar-right"><a className="report-cta" href="/report">{t("pubReport")}</a><LanguageSwitch /></div>
       </header>
       <div className="body">
         <MapView clusters={clusters} place={place} label={t("mapLabel")} />
@@ -126,6 +128,7 @@ function PublicPage() {
               </li>
             ))}
           </ul>
+          <a className="report-cta wide" href="/report">{t("pubReport")}</a>
           <p className="muted small">{t("pubFooter")}</p>
         </aside>
       </div>

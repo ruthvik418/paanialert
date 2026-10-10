@@ -45,6 +45,7 @@ class Report:
     profile_name: str | None = None  # WhatsApp profile name (Twilio ProfileName)
     phone_masked: str | None = None  # e.g. "+91 98•••••210"; the full number is only in Contacts
     extracted_by: str | None = None  # "agent:<model id>" or "keywords"; None on reports from before Oct 10
+    channel: Literal["whatsapp", "app"] = "whatsapp"   # how it arrived: WhatsApp or the web report page
 
 
 @dataclass

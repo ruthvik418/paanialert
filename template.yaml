@@ -69,6 +69,7 @@ Globals:
         CONTACTS_TABLE: !Ref ContactsTable
         AUDIT_TABLE: !Ref AuditLogTable
         ACTIVITY_TABLE: !Ref ActivityTable
+        APP_QUOTA_TABLE: !Ref AppQuotaTable
         MEDIA_BUCKET: !Ref MediaBucket
         TWILIO_WHATSAPP_FROM: !Ref TwilioWhatsAppFrom
   HttpApi:
@@ -80,6 +81,11 @@ Globals:
 Resources:
   PaaniApi:
     Type: AWS::Serverless::HttpApi
+    Properties:
+      # The web report app's routes are public, so cap them (shared by all callers, not per person).
+      RouteSettings:
+        "POST /app/report": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 5 }
+        "POST /app/photo-url": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 5 }
 
   DependenciesLayer:
     Type: AWS::Serverless::LayerVersion
@@ -201,9 +207,27 @@ Resources:
       KeySchema:
         - { AttributeName: activity_id, KeyType: HASH }
 
+  AppQuotaTable:   # reports per web-app device per day (UTC), so one device can't flood the map
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: quota_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: quota_id, KeyType: HASH }
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
   MediaBucket:
     Type: AWS::S3::Bucket
     Properties:
+      CorsConfiguration:   # the report page uploads photos straight to S3 with a presigned PUT
+        CorsRules:
+          - AllowedMethods: [PUT]
+            AllowedOrigins: [!Ref DashboardUrl, "http://localhost:5173"]
+            AllowedHeaders: [content-type]
+            MaxAge: 3000
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -306,6 +330,62 @@ Resources:
             BatchSize: 1
             ScalingConfig: { MaximumConcurrency: 5 }
 
+  # Web report app: POST /app/report runs the same message handling as the worker, synchronously
+
+  AppFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: api.app_report.handler
+      Timeout: 29            # HTTP API waits at most 30 s
+      MemorySize: 1024
+      Environment:
+        Variables:
+          MODEL_ENDPOINT: !Ref ModelEndpoint
+          MANTLE_REGION: !Ref MantleRegion
+          MODEL_IDS: !Ref ModelIds
+          BEDROCK_ROLE_ARN: !Ref BedrockRoleArn
+          BEDROCK_REGION: !Ref BedrockRegion
+          CLAUDE_MODEL: !Ref ClaudeModel
+          GEMINI_MODEL: !Ref GeminiModel
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:PutItem]
+              Resource: [!GetAtt ReportsTable.Arn, !GetAtt SessionsTable.Arn, !GetAtt PreferencesTable.Arn]
+            - Effect: Allow
+              Action: [dynamodb:PutItem, dynamodb:DeleteItem]
+              Resource: !GetAtt ProcessedMessagesTable.Arn
+            - Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt AppQuotaTable.Arn
+            - Effect: Allow
+              Action: [s3:PutObject, s3:GetObject]   # sign upload URLs; check the uploaded photo
+              Resource: !Sub "${MediaBucket.Arn}/app-uploads/*"
+            - Effect: Allow
+              Action: ssm:GetParameter
+              Resource:
+                - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/paanialert/hmac_secret"
+                - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/paanialert/anthropic_api_key"
+                - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/paanialert/gemini_api_key"
+            - Effect: Allow
+              Action: bedrock-mantle:CreateInference
+              Resource: !Sub "arn:${AWS::Partition}:bedrock-mantle:${MantleRegion}:${AWS::AccountId}:project/*"
+            - Effect: Allow
+              Action: bedrock-mantle:CallWithBearerToken
+              Resource: "*"
+              Condition:
+                StringEquals: { "bedrock-mantle:BearerTokenType": SHORT_TERM }
+            - Effect: Allow
+              Action: geo-places:ReverseGeocode   # area name for the report's location
+              Resource: "*"
+      Events:
+        Report:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: /app/report }
+        PhotoUrl:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: /app/photo-url }
+
   # Clusters and alerts
 
   WardEngineerTopic:
@@ -369,8 +449,8 @@ Resources:
               Action: [dynamodb:PutItem, dynamodb:Scan]   # log status changes and all-clears; GET /activity
               Resource: !GetAtt ActivityTable.Arn
             - Effect: Allow
-              Action: s3:GetObject          # presigned links to report photos
-              Resource: !Sub "${MediaBucket.Arn}/media/*"
+              Action: s3:GetObject          # presigned links to report photos (WhatsApp and web app)
+              Resource: [!Sub "${MediaBucket.Arn}/media/*", !Sub "${MediaBucket.Arn}/app-uploads/*"]
       Events:
         Reports:
           Type: HttpApi
