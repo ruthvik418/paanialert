@@ -50,6 +50,20 @@ def test_app_report_is_saved_with_channel_app_and_location(app):
     assert db.get_contact(report.phone_hash) is None
 
 
+def test_app_report_shows_up_in_the_officials_reports_list(app):
+    """POST /app/report, then GET /reports as the dashboard calls it: the report is there, marked as from the app."""
+    from api.app import handler as dashboard_api
+    from tests.conftest import SECRETS
+
+    _, sent = call(app, "/app/report", report_body())
+    resp = dashboard_api({"routeKey": "GET /reports", "headers": {"x-dashboard-key": SECRETS["dashboard_key"]}}, None)
+    assert resp["statusCode"] == 200
+    rows = {r["report_id"]: r for r in json.loads(resp["body"])["reports"]}
+    row = rows[sent["report_id"]]
+    assert row["channel"] == "app" and row["lat"] == 22.7196 and row["lon"] == 75.8577 and row["colour"] == "yellow"
+    assert "phone_hash" not in row
+
+
 def test_whatsapp_reports_keep_channel_whatsapp(app, monkeypatch):
     import worker.app as w
     from common import db
