@@ -8,6 +8,9 @@ and also used for their alerts.
 Alerts: once a report has a location, the bot offers alerts for that area;
 YES / haan adds the person to Subscribers, NO stops it asking, STOP removes them.
 
+Duplicates: Twilio retries webhooks and SQS can deliver twice, so a MessageSid
+that was already handled is skipped (ProcessedMessages table, 2-day TTL).
+
 Location pins are handled here, not by the model: a pin attaches to the
 person's last report if it has no location yet, otherwise it is kept for their
 next report.
@@ -48,6 +51,19 @@ def handler(event, context):
 
 
 def handle(msg: dict) -> str:
+    sid = msg.get("MessageSid")
+    if sid and not db.claim_message(sid):
+        log.info("skipped duplicate message sid=%s", sid)
+        return ""
+    try:
+        return _handle(msg)
+    except Exception:
+        if sid:
+            db.release_message(sid)   # let the SQS retry handle it
+        raise
+
+
+def _handle(msg: dict) -> str:
     sender = msg["From"]
     text = (msg.get("Body") or "").strip()
     ph = phone_hash(sender)

@@ -118,3 +118,32 @@ def test_no_means_no_and_yes_later_is_just_a_message(worker):
     assert "ठीक" in worker.handle({"From": PHONE, "Body": "nahi"}) or "Okay" in worker.sent[-1][1]
     worker.handle({"From": PHONE, "Body": "yes"})                           # not after a question: ignored
     assert db.get_subscriber(phone_hash(PHONE)) is None
+
+
+def test_same_message_sid_is_handled_once(worker):
+    from common import db
+    from common.hashing import phone_hash
+
+    msg = {"From": PHONE, "Body": "paani bhura hai, badboo aa rahi hai", "MessageSid": "SMdup1"}
+    assert worker.handle(msg)
+    assert worker.handle(dict(msg)) == ""                    # Twilio retry or SQS redelivery
+    assert len(worker.sent) == 1
+    assert len(db.recent_reports("2000-01-01T00:00:00Z")) == 1
+    assert [t["role"] for t in db.get_session(phone_hash(PHONE))["turns"]] == ["user", "assistant"]
+
+
+def test_failed_message_can_be_retried(worker, monkeypatch):
+    calls = []
+
+    def flaky(to, body, media_url=None):
+        calls.append(to)
+        if len(calls) == 1:
+            raise RuntimeError("Twilio down")
+        return "SM"
+
+    monkeypatch.setattr(worker, "send_whatsapp", flaky)
+    msg = {"From": PHONE, "Body": "hello", "MessageSid": "SMretry1"}
+    with pytest.raises(RuntimeError):
+        worker.handle(msg)
+    assert worker.handle(dict(msg))                          # the SQS retry is not skipped
+    assert len(calls) == 2

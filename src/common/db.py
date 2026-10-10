@@ -159,6 +159,27 @@ def subscribers_in_cells(cells: list[str]) -> list[dict[str, Any]]:
     return out
 
 
+# Processed messages: Twilio retries webhooks and SQS can deliver twice, so each MessageSid is handled once
+
+def claim_message(message_sid: str) -> bool:
+    """True the first time a MessageSid is seen. The row expires after 2 days."""
+    try:
+        _table("processed").put_item(
+            Item={"message_sid": message_sid, "expires_at": int(time.time()) + 2 * 24 * 3600},
+            ConditionExpression="attribute_not_exists(message_sid)",
+        )
+        return True
+    except Exception as exc:
+        if "ConditionalCheckFailed" in str(exc):
+            return False
+        raise
+
+
+def release_message(message_sid: str) -> None:
+    """Undo a claim when handling failed, so the SQS retry runs."""
+    _table("processed").delete_item(Key={"message_sid": message_sid})
+
+
 # Sessions: short conversation memory per phone, expires after 24 hours
 
 def get_session(phone_hash: str) -> dict[str, Any]:

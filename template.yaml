@@ -48,6 +48,7 @@ Globals:
         NOTICES_TABLE: !Ref NoticesTable
         SESSIONS_TABLE: !Ref SessionsTable
         PREFERENCES_TABLE: !Ref PreferencesTable
+        PROCESSED_TABLE: !Ref ProcessedMessagesTable
         MEDIA_BUCKET: !Ref MediaBucket
         TWILIO_WHATSAPP_FROM: !Ref TwilioWhatsAppFrom
   HttpApi:
@@ -141,6 +142,18 @@ Resources:
       KeySchema:
         - { AttributeName: phone_hash, KeyType: HASH }
 
+  ProcessedMessagesTable:   # one row per handled Twilio MessageSid, so retries aren't processed twice
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: message_sid, AttributeType: S }
+      KeySchema:
+        - { AttributeName: message_sid, KeyType: HASH }
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
   MediaBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -204,6 +217,10 @@ Resources:
         - DynamoDBCrudPolicy: { TableName: !Ref SessionsTable }
         - DynamoDBCrudPolicy: { TableName: !Ref PreferencesTable }
         - S3CrudPolicy: { BucketName: !Ref MediaBucket }
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:PutItem, dynamodb:DeleteItem]
+              Resource: !GetAtt ProcessedMessagesTable.Arn
         - SSMParameterReadPolicy: { ParameterName: paanialert/* }
         - Statement:
             - Effect: Allow
