@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import MapView from "./MapView.jsx";
 import { ApiError, newRequestId, sendAppReport, uploadPhoto } from "./api.js";
 import { useLang } from "./i18n.js";
+import WarningBanner, { rememberPin } from "./WarningBanner.jsx";
 
 // The language the bot replies in. The page itself is in English or Hindi (Hinglish uses English).
 const REPLY_LANGS = [["en", "English"], ["hi", "हिंदी"], ["hinglish", "Hinglish"]];
@@ -62,6 +63,7 @@ export default function ReportPage() {
   function pick(point, fly = false) {
     if (!inIndia(point)) { setLocationNote(t("rpOutsideIndia")); return; }
     setPin({ lat: point.lat, lon: point.lon, fly });
+    rememberPin(point);
     setLocationNote("");
     setErrors((e) => ({ ...e, location: "" }));
   }
@@ -144,6 +146,7 @@ export default function ReportPage() {
       </header>
 
       <main id="report-main" className="report-main">
+        <WarningBanner pin={pin} />
         <h1>{t("rpTitle")}</h1>
         <p className="report-intro">{t("rpIntro")}</p>
 

@@ -113,6 +113,7 @@ const STRINGS = {
     warnBoil: "Boil water before drinking",
     warnBoilHow: "Boil tap water for at least 1 minute before drinking or cooking. Give ORS for loose motions; for blood in stool or dehydration, call 108.",
     warnDoNotUse: "Don't drink tap water here",
+    warnIssued: "Official warning, issued {time}. It stays until officials lift it.",
     warnDoNotUseHow: "Don't drink or cook with tap water until officials lift this warning. Boiling may not make it safe. Use bottled water or a safe tanker.",
 
     rpTitle: "Report bad water",
@@ -279,6 +280,7 @@ const STRINGS = {
     warnBoil: "पीने से पहले पानी उबालें",
     warnBoilHow: "पीने या खाना बनाने से पहले नल का पानी कम से कम 1 मिनट उबालें। दस्त हो तो ORS दें; मल में खून या पानी की कमी हो तो 108 पर कॉल करें।",
     warnDoNotUse: "यहाँ नल का पानी न पिएं",
+    warnIssued: "अधिकारियों की चेतावनी, {time} जारी। अधिकारी हटाने तक लागू है।",
     warnDoNotUseHow: "अधिकारी चेतावनी हटाने तक नल का पानी पीने या खाना बनाने में इस्तेमाल न करें। उबालने से भी यह सुरक्षित नहीं हो सकता। बोतल का पानी या सुरक्षित टैंकर इस्तेमाल करें।",
 
     rpTitle: "खराब पानी की शिकायत करें",
