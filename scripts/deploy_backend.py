@@ -6,6 +6,8 @@ Builds the dependency layer if it's missing, runs `sam build` into a folder in
 your home directory (OneDrive and similar sync tools lock files inside the repo
 and break the build), then `sam deploy` with the repo's samconfig.toml.
 Pass --layer to rebuild the layer after changing layer/requirements.txt.
+Pass --stack-name NAME to deploy a separate copy (e.g. paanialert-test) instead of
+samconfig.toml's stack; it uses the same SSM parameters and stack settings.
 """
 from __future__ import annotations
 
@@ -55,8 +57,10 @@ def main() -> None:
     # sam build needs a Python 3.12 on PATH; the one running this script is put first.
     os.environ["PATH"] = str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"]
     run(sam(), "build", "--build-dir", str(BUILD / "sam"), "--cache-dir", str(BUILD / "cache"))
+    stack = sys.argv[sys.argv.index("--stack-name") + 1] if "--stack-name" in sys.argv else None
     run(sam(), "deploy", "--template-file", str(BUILD / "sam" / "template.yaml"),
-        "--config-file", str(ROOT / "samconfig.toml"), "--no-progressbar")
+        "--config-file", str(ROOT / "samconfig.toml"), "--no-progressbar",
+        *(["--stack-name", stack] if stack else []))
 
 
 if __name__ == "__main__":

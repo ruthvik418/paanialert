@@ -14,11 +14,17 @@ that was already handled is skipped (ProcessedMessages table, 2-day TTL).
 Location pins are handled here, not by the model: a pin attaches to the
 person's last report if it has no location yet, otherwise it is kept for their
 next report.
+
+The web report app (POST /app/report, api/app_report.py) calls handle() too,
+with channel "app", From "app:<device id>" and its own send function. App
+messages always carry text and a location together and have their own language
+picker, so they skip the menu, commands, pins, contacts and alert offers.
 """
 from __future__ import annotations
 
 import json
 import logging
+from typing import Callable
 
 from agent import fallback, prompts
 from agent.media import save_media
@@ -50,28 +56,30 @@ def handler(event, context):
         handle(json.loads(record["body"]))
 
 
-def handle(msg: dict) -> str:
+def handle(msg: dict, send: Callable[[str, str], object] | None = None) -> str:
+    """Handle one message and send the answer with send(to, body); WhatsApp (send_whatsapp) by default."""
     sid = msg.get("MessageSid")
     if sid and not db.claim_message(sid):
         log.info("skipped duplicate message sid=%s", sid)
         return ""
     try:
-        return _handle(msg)
+        return _handle(msg, send or send_whatsapp)
     except Exception:
         if sid:
             db.release_message(sid)   # let the SQS retry handle it
         raise
 
 
-def _handle(msg: dict) -> str:
+def _handle(msg: dict, send: Callable[[str, str], object]) -> str:
     sender = msg["From"]
+    app = msg.get("channel") == "app"
     text = (msg.get("Body") or "").strip()
     ph = phone_hash(sender)
     state = db.get_session(ph)
     turns = state.get("turns", [])
     chosen = db.get_language(ph)
     lang = chosen or prompts.DEFAULT_LANG
-    first_contact = chosen is None and not turns
+    first_contact = chosen is None and not turns and not app
     lat, lon = _float(msg.get("Latitude")), _float(msg.get("Longitude"))
     command = text.lower().strip(" .!")
     choice = LANGUAGE_WORDS.get(command) or (MENU_NUMBERS.get(command) if state.get("awaiting_language") else None)
@@ -79,7 +87,9 @@ def _handle(msg: dict) -> str:
     # Like the language menu, YES/NO only counts as the answer right after we asked.
     subscribe_cell = state.pop("awaiting_subscribe", None)
 
-    if subscribe_cell and command in YES_WORDS:
+    if app:
+        answer = _handle_message(msg, text, ph, state, turns, lang)
+    elif subscribe_cell and command in YES_WORDS:
         db.put_subscriber(ph, sender, subscribe_cell, lang)
         log.info("subscribed one phone in cell %s", subscribe_cell)
         answer = prompts.SUBSCRIBED[lang]
@@ -110,7 +120,7 @@ def _handle(msg: dict) -> str:
     else:
         state.pop("awaiting_language", None)
 
-    send_whatsapp(sender, answer)
+    send(sender, answer)
     if text:
         turns.append({"role": "user", "text": text})
     turns.append({"role": "assistant", "text": answer})
@@ -140,14 +150,20 @@ def _offer_alerts(state: dict, report, lang: str) -> str:
 
 
 def _handle_message(msg: dict, text: str, ph: str, state: dict, turns: list, lang: str) -> str:
-    pending = state.get("pending_location")
-    photo_key, audio_key = save_media(msg, msg.get("MessageSid") or "media")
+    app = msg.get("channel") == "app"
+    if app:   # location and photo come with the message, already checked by api/app_report.py
+        pending = [_float(msg.get("Latitude")), _float(msg.get("Longitude"))]
+        photo_key, audio_key = msg.get("PhotoKey") or None, None
+    else:
+        pending = state.get("pending_location")
+        photo_key, audio_key = save_media(msg, msg.get("MessageSid") or "media")
     ctx = TurnContext(
         phone_hash=ph, lang=lang, msg_lang=fallback.detect_lang(text) if text else None,
         lat=pending[0] if pending else None, lon=pending[1] if pending else None,
         photo_key=photo_key, audio_key=audio_key,
         text=text or None, profile_name=(msg.get("ProfileName") or "").strip()[:80] or None,
-        phone_masked=mask_number(msg["From"]),
+        phone_masked=None if app else mask_number(msg["From"]),
+        channel="app" if app else "whatsapp",
     )
 
     if not text:
@@ -160,7 +176,9 @@ def _handle_message(msg: dict, text: str, ph: str, state: dict, turns: list, lan
     except AgentUnavailable:
         answer = _keyword_reply(text, ctx)
 
-    if ctx.saved:
+    if ctx.saved and app:
+        state["last_report_id"] = ctx.saved.report_id   # no contact to keep and no alerts to offer
+    elif ctx.saved:
         db.put_contact(ph, normalise_number(msg["From"]))
         state["last_report_id"] = ctx.saved.report_id
         state.pop("pending_location", None)

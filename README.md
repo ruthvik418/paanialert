@@ -97,6 +97,10 @@ Fake reports use made-up phone hashes, so nobody is messaged. To get the officia
 
 The agent reads each message with Qwen3 235B (Qwen3 VL as backup, `ModelIds` parameter) through Bedrock's OpenAI-compatible `bedrock-mantle` endpoint in Mumbai, authenticated with short-lived tokens from the worker's IAM role. The model fills the report fields (a forced structured-output call); code saves the report and writes the reply. If no model answers, the worker falls back to keyword extraction (`src/agent/fallback.py`) so reports, clusters and alerts keep working; each report's `extracted_by` shows which one read it. See `docs/bedrock-access.md` and `docs/eval.md`.
 
+### Web report app (`/report`)
+
+A second way to report, for people who haven't joined the Twilio sandbox: `https://<dashboard>/report` on a phone. One screen with the reply language (English, हिंदी, Hinglish), the message, a location (browser location or a tap on the map) and an optional photo. It calls the public `POST /app/report` (`src/api/app_report.py`), which runs the same `worker.handle()` as WhatsApp with `channel = "app"` and returns the bot's reply. Photos go straight to S3 under `app-uploads/` through `POST /app/photo-url` (presigned PUT, 5 minutes, JPEG or PNG, at most 5 MB). Both routes are throttled (1 request/s, burst 5, shared by everyone), and each device (a random id kept in the browser) can send 10 reports a day. Officials see app reports with a 📱 label. App users can't subscribe to alerts (there is no WhatsApp number to send them to).
+
 ## Working together
 
 - Small pull requests into `main`. Whoever merges deploys.

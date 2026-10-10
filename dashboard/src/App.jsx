@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
 import MapView, { PLACES } from "./MapView.jsx";
-import { Unauthorised, getClusters, getPublicClusters, saveKey, savedKey } from "./api.js";
+import { Unauthorised, getClusters, getPublicAdvisories, getPublicClusters, saveKey, savedKey } from "./api.js";
 import { ago, levelLabel } from "./format.js";
 import { LANGS, useLang } from "./i18n.js";
 import OperationsDashboard from "./OperationsDashboard.jsx";
+import ReportPage from "./ReportPage.jsx";
 
 const POLL_MS = 30000;
 
 export default function App() {
-  const isPublic = window.location.pathname.replace(/\/$/, "") === "/public";
-  return isPublic ? <PublicPage /> : <OfficialsApp />;
+  const path = window.location.pathname.replace(/\/$/, "");
+  if (path === "/report") return <ReportPage />;
+  return path === "/public" ? <PublicPage /> : <OfficialsApp />;
 }
 
 function LanguageSwitch() {
@@ -87,9 +89,13 @@ function PublicPage() {
   const [clusters, setClusters] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [place, setPlace] = useState("all");
+  const [advisories, setAdvisories] = useState([]);
 
   useEffect(() => {
-    const load = () => getPublicClusters().then((c) => { setClusters(c); setLoaded(true); }).catch(() => setLoaded(true));
+    const load = () => {
+      getPublicAdvisories().then(setAdvisories).catch(() => {});
+      return getPublicClusters().then((c) => { setClusters(c); setLoaded(true); }).catch(() => setLoaded(true));
+    };
     load();
     const timer = setInterval(load, POLL_MS);
     return () => clearInterval(timer);
@@ -106,13 +112,25 @@ function PublicPage() {
       <header className="topbar">
         <div className="brand"><span className="drop" aria-hidden="true" />PaaniAlert <span className="muted">{t("public")}</span></div>
         <PlaceSwitch place={place} setPlace={setPlace} />
-        <div className="topbar-right"><LanguageSwitch /></div>
+        <div className="topbar-right"><a className="report-cta" href="/report">{t("pubReport")}</a><LanguageSwitch /></div>
       </header>
       <div className="body">
-        <MapView clusters={clusters} place={place} label={t("mapLabel")} />
+        <MapView clusters={clusters} circles={advisories.map((a, i) => ({ id: i, ...a }))} place={place} label={t("mapLabel")} />
         <aside className="panel">
           <h1 className="public-title">{t("pubTitle")}</h1>
           <p className="muted small">{t("pubHelp")}</p>
+          {advisories.length > 0 && <section aria-labelledby="official-warnings">
+            <h2 id="official-warnings" className="public-subtitle">{t("pubWarnings")}</h2>
+            <ul className="list">
+              {advisories.map((a, i) => (
+                <li key={i} className={`card warning ${a.kind}`}>
+                  <strong>{t(a.kind === "do_not_use" ? "warnDoNotUse" : "warnBoil")}</strong>
+                  <p className="small">{t(a.kind === "do_not_use" ? "warnDoNotUseHow" : "warnBoilHow")}</p>
+                  <p className="muted small">{t("pubWarnArea", { km: a.radius_m / 1000, ago: ago(a.created_at, t) })}</p>
+                </li>
+              ))}
+            </ul>
+          </section>}
           <ul className="list">
             {loaded && clusters.length === 0 && <Empty text={t("pubEmpty")} />}
             {clusters.map((c, i) => (
@@ -126,6 +144,7 @@ function PublicPage() {
               </li>
             ))}
           </ul>
+          <a className="report-cta wide" href="/report">{t("pubReport")}</a>
           <p className="muted small">{t("pubFooter")}</p>
         </aside>
       </div>

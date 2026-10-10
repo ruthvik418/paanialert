@@ -12,6 +12,7 @@
   alerted again like a new outbreak.
 - Everything it does (level reached, each advisory, SNS, escalation, reopening)
   is written to the Activity table for the dashboard.
+- Reports officials marked false_report are left out before the rule runs.
 """
 from __future__ import annotations
 
@@ -24,7 +25,7 @@ import boto3
 
 from agent.messages import advisory_text, all_clear_text, official_text
 from cluster.rule import _parse, evaluate
-from common import db
+from common import db, push
 from common.hashing import mask_number
 from common.models import Cluster
 from common.timeutil import hours_ago_iso, iso, now
@@ -47,7 +48,8 @@ def handler(event, context):
 
 def run() -> dict:
     current = now()
-    reports = db.recent_reports(hours_ago_iso(48))
+    # Reports officials marked false don't count; the rule itself stays pure and unaware of statuses.
+    reports = [r for r in db.recent_reports(hours_ago_iso(48)) if r.status != "false_report"]
     notices = active_notice_cells(iso(current))
     results = evaluate(reports, current, notices)
     existing = db.all_clusters()
@@ -138,11 +140,23 @@ def send_alerts(c: Cluster) -> None:
            official_text(c.cluster_id, c.level, c.report_count, c.distinct_phones, c.sick_households,
                          c.centre_lat, c.centre_lon, DASHBOARD_URL))
     message_subscribers(c, "advisory", lambda lang: advisory_text(c.report_count, c.sick_households, lang))
+    push_subscribers(c, "advisory", lambda lang: advisory_text(c.report_count, c.sick_households, lang, whatsapp=False))
 
 
 def send_all_clear(c: Cluster) -> int:
-    """WhatsApp all-clear to subscribers in the area, in their language. Returns how many were sent."""
-    return message_subscribers(c, "all_clear", all_clear_text)
+    """All-clear to WhatsApp and app subscribers in the area, in their language. Returns how many were sent."""
+    return (message_subscribers(c, "all_clear", all_clear_text)
+            + push_subscribers(c, "all_clear", lambda lang: all_clear_text(lang, whatsapp=False)))
+
+
+def push_subscribers(c: Cluster, kind: str, text_for) -> int:
+    """Web push to report-app devices that asked for warnings in the cluster's cells, logging each one."""
+    sent = 0
+    for sub in db.app_subscribers_in_cells(c.cells):
+        ok, error = push.send({**sub, "tag": f"cluster-{c.cluster_id}"}, "PaaniAlert", text_for(sub.get("lang", "en")))
+        db.log_activity(kind, c.cluster_id, channel="push", to=push.label(sub), ok=ok, error=error)
+        sent += ok
+    return sent
 
 
 def message_subscribers(c: Cluster, kind: str, text_for) -> int:

@@ -15,6 +15,8 @@ Taste = Literal["normal", "bad", "salty", "unknown"]
 Source = Literal["pipe", "borewell", "tanker", "unknown"]
 Level = Literal["none", "watch", "alert"]
 ClusterStatus = Literal["open", "acknowledged", "fixed", "false_alarm", "expired"]
+ReportStatus = Literal["new", "reviewing", "resolved", "false_report"]   # set by officials; false_report is left out of clusters
+AdvisoryKind = Literal["boil", "do_not_use"]
 
 
 @dataclass
@@ -45,6 +47,10 @@ class Report:
     profile_name: str | None = None  # WhatsApp profile name (Twilio ProfileName)
     phone_masked: str | None = None  # e.g. "+91 98•••••210"; the full number is only in Contacts
     extracted_by: str | None = None  # "agent:<model id>" or "keywords"; None on reports from before Oct 10
+    channel: Literal["whatsapp", "app"] = "whatsapp"   # how it arrived: WhatsApp or the web report page
+    status: ReportStatus = "new"
+    status_note: str | None = None   # the official's note with the status, up to 200 characters
+    status_at: str | None = None
 
 
 @dataclass
@@ -70,10 +76,30 @@ class Cluster:
     report_ids: list[str] = field(default_factory=list)   # the reports in it at the last check
 
 
-T = TypeVar("T", Report, Cluster)
+@dataclass
+class Advisory:
+    """A warning officials issued for a circle on the map, until they lift it."""
+
+    advisory_id: str
+    lat: float
+    lon: float
+    radius_m: int                    # 500, 1000 or 2000
+    kind: AdvisoryKind
+    created_at: str
+    status: Literal["active", "lifted"] = "active"
+    note: str | None = None          # cleaned: no links, at most 200 characters
+    cells: list[str] = field(default_factory=list)          # geohash-6 cells overlapping the circle
+    whatsapp_to: list[str] = field(default_factory=list)    # phone hashes warned, so lifting reaches the same people
+    app_to: list[str] = field(default_factory=list)         # app push subscription ids warned
+    cluster_id: str | None = None    # what it was issued from, if anything
+    report_id: str | None = None
+    lifted_at: str | None = None
 
 
-def to_item(record: Report | Cluster) -> dict[str, Any]:
+T = TypeVar("T", Report, Cluster, Advisory)
+
+
+def to_item(record: Report | Cluster | Advisory) -> dict[str, Any]:
     """Dataclass to DynamoDB item: drops empty values, floats become Decimal."""
     return {k: _to_dynamo(v) for k, v in asdict(record).items() if v is not None and v != []}
 
