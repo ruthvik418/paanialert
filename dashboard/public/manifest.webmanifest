@@ -1,0 +1,17 @@
+{
+  "id": "/report",
+  "name": "PaaniAlert",
+  "short_name": "PaaniAlert",
+  "description": "Report unsafe water in your area and get warnings when your water isn't safe.",
+  "lang": "en",
+  "start_url": "/report?source=app",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#0d1212",
+  "background_color": "#0d1212",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

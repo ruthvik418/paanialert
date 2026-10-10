@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0d1212" />
+    <title>Offline · PaaniAlert</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; min-height: 100%; }
+      body { display: grid; min-height: 100dvh; place-items: center; padding: 24px; box-sizing: border-box;
+             background: #0d1212; color: #edf2f1; font: 16px/1.5 "Segoe UI", Arial, sans-serif; }
+      main { max-width: 420px; text-align: center; }
+      h1 { margin: 16px 0 8px; font-size: 22px; font-weight: 600; }
+      p { margin: 0 0 8px; color: #929f9c; }
+      a { display: inline-flex; min-height: 48px; align-items: center; margin-top: 16px; padding: 0 20px;
+          background: #56b7a7; color: #071311; font-weight: 650; text-decoration: none; touch-action: manipulation; }
+      a:focus-visible { outline: 2px solid #56b7a7; outline-offset: 2px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg viewBox="0 0 24 24" width="72" height="72" aria-hidden="true"><path d="M12 2C9 7 5 10.5 5 14.5a7 7 0 0 0 14 0C19 10.5 15 7 12 2z" fill="#56b7a7" /></svg>
+      <h1>You’re offline.</h1>
+      <p>Your report will need internet to send.</p>
+      <p lang="hi">आप ऑफ़लाइन हैं। रिपोर्ट भेजने के लिए इंटरनेट चाहिए।</p>
+      <a href="/report">Try again</a>
+    </main>
+  </body>
+</html>

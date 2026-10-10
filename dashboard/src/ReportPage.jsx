@@ -47,6 +47,8 @@ export default function ReportPage() {
   const requestId = useRef(newRequestId());
 
   useEffect(() => { document.title = t("rpDocTitle"); }, [t]);
+  // The service worker makes the page installable as an app and shows a page when offline.
+  useEffect(() => { navigator.serviceWorker?.register("/sw.js", { scope: "/" }).catch(() => {}); }, []);
   useEffect(() => () => { if (photo) URL.revokeObjectURL(photo.url); }, [photo]);
   useEffect(() => { if (result) resultRef.current?.focus(); }, [result]);
 

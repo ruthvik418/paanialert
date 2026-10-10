@@ -3,7 +3,8 @@
     python scripts/deploy_dashboard.py            # uses the AWS profile "paani"
 
 What it does, creating anything that doesn't exist yet:
-1. Amplify app "paanialert-dashboard" with branch "main" and a rewrite so /public works
+1. Amplify app "paanialert-dashboard" with branch "main", a rewrite so /public and /report work,
+   and headers for the PWA files (manifest, service worker, Android assetlinks.json)
 2. Amazon Location API key "paanialert-maps" for map tiles, limited to the app's URL and localhost
 3. `npm run build` with the stack's API URL and the map key
 4. Uploads dist/ as a manual deployment and waits until it's live
@@ -34,11 +35,32 @@ STACK = "paanialert"
 PROFILE = os.environ.get("AWS_PROFILE", "paani")
 REGION = os.environ.get("AWS_REGION", "ap-south-1")
 
+# Paths without a file extension (/report, /public) get index.html; real files are served as they are.
+# html and webmanifest are listed so /offline.html and /manifest.webmanifest aren't rewritten,
+# and /.well-known/assetlinks.json passes as json.
 SPA_RULE = {
-    "source": "</^[^.]+$|\\.(?!(css|gif|ico|jpg|jpeg|js|png|txt|svg|woff|woff2|ttf|map|json|webp)$)([^.]+$)/>",
+    "source": "</^[^.]+$|\\.(?!(css|gif|html|ico|jpg|jpeg|js|png|txt|svg|webmanifest|woff|woff2|ttf|map|json|webp)$)([^.]+$)/>",
     "target": "/index.html",
     "status": "200",
 }
+# Android (PWABuilder / Trusted Web Activity) and Chrome's install check need these exact types,
+# and a fresh service worker on every visit.
+CUSTOM_HEADERS = """customHeaders:
+  - pattern: '/manifest.webmanifest'
+    headers:
+      - key: 'Content-Type'
+        value: 'application/manifest+json'
+  - pattern: '/.well-known/assetlinks.json'
+    headers:
+      - key: 'Content-Type'
+        value: 'application/json'
+  - pattern: '/sw.js'
+    headers:
+      - key: 'Content-Type'
+        value: 'text/javascript'
+      - key: 'Cache-Control'
+        value: 'no-cache'
+"""
 
 
 def main() -> None:
@@ -51,15 +73,18 @@ def main() -> None:
 
     build(api_url, map_key)
     deploy(amplify, app_id)
-    print(f"\nDashboard live: {url}\nPublic page:    {url}/public")
+    print(f"\nDashboard live: {url}\nPublic page:    {url}/public\nReport app:     {url}/report")
 
 
 def ensure_app(amplify) -> str:
     apps = amplify.list_apps(maxResults=100)["apps"]
     app = next((a for a in apps if a["name"] == APP_NAME), None)
     if app is None:
-        app = amplify.create_app(name=APP_NAME, platform="WEB", customRules=[SPA_RULE])["app"]
+        app = amplify.create_app(name=APP_NAME, platform="WEB", customRules=[SPA_RULE], customHeaders=CUSTOM_HEADERS)["app"]
         print(f"Created Amplify app {app['appId']}")
+    elif app.get("customRules") != [SPA_RULE] or app.get("customHeaders") != CUSTOM_HEADERS:
+        amplify.update_app(appId=app["appId"], customRules=[SPA_RULE], customHeaders=CUSTOM_HEADERS)
+        print("Updated the Amplify rewrite rule and headers")
     branches = amplify.list_branches(appId=app["appId"])["branches"]
     if not any(b["branchName"] == BRANCH for b in branches):
         amplify.create_branch(appId=app["appId"], branchName=BRANCH, stage="PRODUCTION")

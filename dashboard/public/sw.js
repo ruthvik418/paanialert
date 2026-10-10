@@ -1,8 +1,24 @@
 // PaaniAlert service worker: shows water warnings pushed to people who chose "Warn me about my area".
 // Payload (from src/common/push.py): {title, body, url, tag}.
+// It also shows offline.html when a page can't load. Nothing else is cached: API calls always go to the network.
 
-self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+const OFFLINE_CACHE = "paanialert-offline-v1";
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(caches.open(OFFLINE_CACHE).then((cache) => cache.add("/offline.html")).then(() => self.skipWaiting()));
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(caches.keys()
+    .then((keys) => Promise.all(keys.filter((k) => k !== OFFLINE_CACHE).map((k) => caches.delete(k))))
+    .then(() => self.clients.claim()));
+});
+
+// Only page loads are handled; everything else (API calls, assets) isn't intercepted.
+self.addEventListener("fetch", (event) => {
+  if (event.request.mode !== "navigate") return;
+  event.respondWith(fetch(event.request).catch(() => caches.match("/offline.html")));
+});
 
 self.addEventListener("push", (event) => {
   let data = {};

@@ -30,3 +30,12 @@ Thumbs.db
 # Recordings and large media (keep these in the shared Drive folder)
 *.mp4
 *.mov
+
+# Android app from PWABuilder: the signing key must never be committed (keep it in the team's password manager)
+*.keystore
+*.jks
+signing-key-info.txt
+*.apk
+*.aab
+PaaniAlert*.zip
+android-app/
