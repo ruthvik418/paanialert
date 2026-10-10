@@ -304,3 +304,25 @@ def lift_advisory(advisory_id: str, at_iso: str) -> bool:
         if "ConditionalCheckFailed" in str(exc):
             return False
         raise
+
+
+# App subscribers: web-app devices that asked for warnings about one area (push subscriptions)
+
+def put_app_subscriber(item: dict[str, Any]) -> None:
+    _table("app_subscribers").put_item(Item=item)
+
+
+def get_app_subscriber(subscription_id: str) -> dict[str, Any] | None:
+    return _table("app_subscribers").get_item(Key={"subscription_id": subscription_id}).get("Item")
+
+
+def delete_app_subscriber(subscription_id: str) -> None:
+    _table("app_subscribers").delete_item(Key={"subscription_id": subscription_id})
+
+
+def app_subscribers_in_cells(cells: list[str]) -> list[dict[str, Any]]:
+    tbl = _table("app_subscribers")
+    out: list[dict[str, Any]] = []
+    for cell in cells:
+        out += _query_all(tbl, IndexName="by-cell", KeyConditionExpression=Key("geohash6").eq(cell))
+    return out

@@ -11,7 +11,8 @@ NOTE_MAX = 200
 _LINK = re.compile(r"(https?://|www\.)\S*|\b[\w-]+(\.[\w-]+)*\.(com|in|org|net|gov|io|co|ly|me|info|xyz|link|app|site)\b\S*", re.I)
 
 
-def advisory_text(report_count: int, sick_households: int, lang: str) -> str:
+def advisory_text(report_count: int, sick_households: int, lang: str, whatsapp: bool = True) -> str:
+    """The automatic Alert. WhatsApp ends with how to stop; an app push (whatsapp=False) doesn't."""
     sick_en = f", {sick_households} household{'s' if sick_households != 1 else ''} with illness" if sick_households else ""
     sick_hi = f", {sick_households} घरों में बीमारी" if sick_households else ""
     sick_hinglish = f", {sick_households} gharon mein bimari" if sick_households else ""
@@ -21,10 +22,10 @@ def advisory_text(report_count: int, sick_households: int, lang: str) -> str:
         "hinglish": f"⚠️ PaaniAlert: pichhle 2 din mein aapke paas kharab paani ki {report_count} shikayatein{sick_hinglish}.",
     }
     lang = lang if lang in lines else "en"
-    return f"{lines[lang]}\n\n{ADVICE[lang]}\n\n{STOP[lang]}"
+    return f"{lines[lang]}\n\n{ADVICE[lang]}" + (f"\n\n{STOP[lang]}" if whatsapp else "")
 
 
-def all_clear_text(lang: str) -> str:
+def all_clear_text(lang: str, whatsapp: bool = True) -> str:
     """Sent when officials mark a cluster fixed, to subscribers in its area who got the advisory."""
     lines = {
         "en": "✅ PaaniAlert: officials have marked the water problem near you as fixed. "
@@ -35,7 +36,7 @@ def all_clear_text(lang: str) -> str:
                     "Agar paani ab bhi ganda dikhe, badboo aaye ya swaad kharab lage, to humein yahan phir se batayein.",
     }
     lang = lang if lang in lines else "en"
-    return f"{lines[lang]}\n\n{STOP[lang]}"
+    return lines[lang] + (f"\n\n{STOP[lang]}" if whatsapp else "")
 
 
 STOP = {

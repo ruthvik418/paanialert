@@ -11,7 +11,7 @@ import logging
 import uuid
 
 from agent.messages import clean_note, warning_lifted_text, warning_text
-from common import db
+from common import db, push
 from common.geo import cells_within
 from common.hashing import mask_number
 from common.models import Advisory
@@ -49,8 +49,8 @@ def recipients(lat: float, lon: float, radius_m: int) -> tuple[list[str], list[d
 
 
 def app_subscribers(cells: list[str]) -> list[dict]:
-    """Web-app devices that asked for warnings in these cells (part B: push)."""
-    return []
+    """Web-app devices that asked for warnings in these cells ("Warn me about my area")."""
+    return db.app_subscribers_in_cells(cells)
 
 
 def preview(body: dict) -> dict:
@@ -100,7 +100,7 @@ def lift(advisory_id: str, ip: str) -> Advisory | None:
 
 
 def get_app_subscriber(subscription_id: str) -> dict | None:
-    return None
+    return db.get_app_subscriber(subscription_id)
 
 
 def _send_all(advisory: Advisory, whatsapp: list[dict], app: list[dict], text_for, kind: str) -> int:
@@ -123,8 +123,15 @@ def _send_all(advisory: Advisory, whatsapp: list[dict], app: list[dict], text_fo
 
 
 def send_app(advisory: Advisory, app: list[dict], text_for, kind: str) -> int:
-    """Web push to app subscribers (part B)."""
-    return 0
+    """Web push to app subscribers, each in their language, logged like the WhatsApp sends."""
+    sent = 0
+    for sub in app:
+        ok, error = push.send({**sub, "tag": f"advisory-{advisory.advisory_id}"}, "PaaniAlert",
+                              text_for(sub.get("lang", "en"), False))
+        db.log_activity(kind, advisory.cluster_id, advisory_id=advisory.advisory_id, channel="push",
+                        to=push.label(sub), ok=ok, error=error)
+        sent += ok
+    return sent
 
 
 def public_rows() -> list[dict]:

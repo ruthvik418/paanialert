@@ -135,3 +135,10 @@ export const previewAdvisory = (key, { lat, lon, radius_m }) =>
 export const issueAdvisory = (key, body) => call("/advisories", { key, method: "POST", body });
 export const liftAdvisory = (key, id) => call(`/advisories/${encodeURIComponent(id)}/lift`, { key, method: "POST" });
 export const getPublicAdvisories = () => call("/public/advisories").then((d) => d.advisories);
+
+/* "Warn me about my area": web push for the report app */
+
+export const getPushKey = () => send("GET", API + "/app/push-key", {}).then((d) => d.public_key);
+export const subscribePush = (subscription, { lat, lon, lang }) =>
+  post("/app/subscribe", { device_id: deviceId(), subscription, lat, lon, lang });
+export const unsubscribePush = (endpoint) => post("/app/unsubscribe", { device_id: deviceId(), endpoint });

@@ -24,6 +24,7 @@ os.environ.update({
     "ACTIVITY_TABLE": "Activity",
     "APP_QUOTA_TABLE": "AppQuota",
     "ADVISORIES_TABLE": "Advisories",
+    "APP_SUBSCRIBERS_TABLE": "AppSubscribers",
     "MEDIA_BUCKET": "media-test",
     "AREA_LOOKUP": "off",
 })
@@ -34,6 +35,8 @@ SECRETS = {
     "twilio_auth_token": "test-token",
     "hmac_secret": "test-hmac",
     "dashboard_key": "test-dashboard-key",
+    "vapid_private_key": "test-vapid-private",
+    "vapid_public_key": "BTestVapidPublicKey",
 }
 
 
@@ -79,6 +82,11 @@ def aws():
         _table(ddb, "Activity", "activity_id")
         _table(ddb, "AppQuota", "quota_id")
         _table(ddb, "Advisories", "advisory_id")
+        _table(ddb, "AppSubscribers", "subscription_id", extra_attrs=("geohash6",), indexes=[{
+            "IndexName": "by-cell",
+            "KeySchema": [{"AttributeName": "geohash6", "KeyType": "HASH"}],
+            "Projection": {"ProjectionType": "ALL"},
+        }])
 
         ssm = boto3.client("ssm", region_name="ap-south-1")
         for name, value in SECRETS.items():

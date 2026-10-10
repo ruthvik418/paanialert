@@ -71,6 +71,8 @@ Globals:
         ACTIVITY_TABLE: !Ref ActivityTable
         APP_QUOTA_TABLE: !Ref AppQuotaTable
         ADVISORIES_TABLE: !Ref AdvisoriesTable
+        APP_SUBSCRIBERS_TABLE: !Ref AppSubscribersTable
+        VAPID_SUBJECT: !Ref DashboardUrl   # identifies us to the browsers' push services
         MEDIA_BUCKET: !Ref MediaBucket
         TWILIO_WHATSAPP_FROM: !Ref TwilioWhatsAppFrom
   HttpApi:
@@ -87,6 +89,9 @@ Resources:
       RouteSettings:
         "POST /app/report": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 5 }
         "POST /app/photo-url": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 5 }
+        "POST /app/subscribe": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 5 }
+        "POST /app/unsubscribe": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 5 }
+        "GET /app/push-key": { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 10 }
 
   DependenciesLayer:
     Type: AWS::Serverless::LayerVersion
@@ -207,6 +212,21 @@ Resources:
         - { AttributeName: activity_id, AttributeType: S }
       KeySchema:
         - { AttributeName: activity_id, KeyType: HASH }
+
+  AppSubscribersTable:   # report-app devices that asked for warnings about an area (web push subscriptions)
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: subscription_id, AttributeType: S }
+        - { AttributeName: geohash6, AttributeType: S }
+      KeySchema:
+        - { AttributeName: subscription_id, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: by-cell
+          KeySchema:
+            - { AttributeName: geohash6, KeyType: HASH }
+          Projection: { ProjectionType: ALL }
 
   AdvisoriesTable:   # officials' "boil water" / "don't use" warnings for an area, until lifted
     Type: AWS::DynamoDB::Table
@@ -369,6 +389,9 @@ Resources:
               Action: dynamodb:UpdateItem
               Resource: !GetAtt AppQuotaTable.Arn
             - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:DeleteItem]   # "Warn me about my area"
+              Resource: !GetAtt AppSubscribersTable.Arn
+            - Effect: Allow
               Action: [s3:PutObject, s3:GetObject]   # sign upload URLs; check the uploaded photo
               Resource: !Sub "${MediaBucket.Arn}/app-uploads/*"
             - Effect: Allow
@@ -377,6 +400,7 @@ Resources:
                 - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/paanialert/hmac_secret"
                 - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/paanialert/anthropic_api_key"
                 - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/paanialert/gemini_api_key"
+                - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/paanialert/vapid_public_key"
             - Effect: Allow
               Action: bedrock-mantle:CreateInference
               Resource: !Sub "arn:${AWS::Partition}:bedrock-mantle:${MantleRegion}:${AWS::AccountId}:project/*"
@@ -395,6 +419,15 @@ Resources:
         PhotoUrl:
           Type: HttpApi
           Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: /app/photo-url }
+        Subscribe:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: /app/subscribe }
+        Unsubscribe:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: /app/unsubscribe }
+        PushKey:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /app/push-key }
 
   # Clusters and alerts
 
@@ -424,6 +457,13 @@ Resources:
         - DynamoDBCrudPolicy: { TableName: !Ref ClustersTable }
         - DynamoDBReadPolicy: { TableName: !Ref SubscribersTable }
         - DynamoDBReadPolicy: { TableName: !Ref NoticesTable }
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:Query          # app push subscribers in a cluster's cells
+              Resource: !Sub "${AppSubscribersTable.Arn}/index/by-cell"
+            - Effect: Allow
+              Action: dynamodb:DeleteItem     # drop subscriptions the push service says are gone
+              Resource: !GetAtt AppSubscribersTable.Arn
         - SNSPublishMessagePolicy: { TopicName: !GetAtt WardEngineerTopic.TopicName }
         - SNSPublishMessagePolicy: { TopicName: !GetAtt HealthOfficerTopic.TopicName }
         - SSMParameterReadPolicy: { ParameterName: paanialert/* }
@@ -467,6 +507,12 @@ Resources:
             - Effect: Allow
               Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Scan]   # advisories
               Resource: !GetAtt AdvisoriesTable.Arn
+            - Effect: Allow
+              Action: dynamodb:Query          # app push subscribers inside an advisory or cluster
+              Resource: !Sub "${AppSubscribersTable.Arn}/index/by-cell"
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:DeleteItem]   # all-clear to the same devices; drop gone ones
+              Resource: !GetAtt AppSubscribersTable.Arn
       Events:
         Reports:
           Type: HttpApi

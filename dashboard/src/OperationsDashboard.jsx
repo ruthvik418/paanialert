@@ -341,8 +341,8 @@ function recipientLabel(event) {
 
 function notificationLabel(event) {
   const result = event.ok === false ? `Failed${event.error ? `: ${event.error}` : ""}` : event.ok === true ? "Provider accepted; delivery unconfirmed" : "Outcome unknown";
-  if (event.kind === "advisory") return `WhatsApp advisory · affected subscribers · ${result}`;
-  if (event.kind === "all_clear") return `WhatsApp all-clear · affected subscribers · ${result}`;
+  if (event.kind === "advisory") return `${event.channel === "push" ? "App push" : "WhatsApp"} advisory · ${event.channel === "push" ? event.to : "affected subscribers"} · ${result}`;
+  if (event.kind === "all_clear") return `${event.channel === "push" ? "App push" : "WhatsApp"} all-clear · ${event.channel === "push" ? event.to : "affected subscribers"} · ${result}`;
   if (event.kind === "sns") return `Email to ${recipientLabel(event)} · ${result}`;
   const via = event.channel === "push" ? "App push" : "WhatsApp";
   if (event.kind === "warning") return `${via} warning · ${event.to || "subscriber"} · ${result}`;

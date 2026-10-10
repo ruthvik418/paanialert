@@ -3,6 +3,7 @@ import MapView from "./MapView.jsx";
 import { ApiError, newRequestId, sendAppReport, uploadPhoto } from "./api.js";
 import { useLang } from "./i18n.js";
 import WarningBanner, { rememberPin } from "./WarningBanner.jsx";
+import WarnMeToggle from "./WarnMeToggle.jsx";
 
 // The language the bot replies in. The page itself is in English or Hindi (Hinglish uses English).
 const REPLY_LANGS = [["en", "English"], ["hi", "हिंदी"], ["hinglish", "Hinglish"]];
@@ -214,6 +215,7 @@ export default function ReportPage() {
             <p className="report-hint">{t("rpPrivacy")}</p>
           </form>
         )}
+        <WarnMeToggle pin={pin} replyLang={replyLang} />
       </main>
     </div>
   );

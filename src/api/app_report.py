@@ -5,6 +5,9 @@ Public routes (no dashboard key), throttled in template.yaml:
     POST /app/photo-url   {device_id, content_type, size}  -> {url, photo_key, expires_in}
     POST /app/report      {device_id, text, lat, lon, lang, photo_key?, request_id?}
                           -> {reply, report_id, saved}
+    GET  /app/push-key    -> {public_key}   (VAPID, for "Warn me about my area")
+    POST /app/subscribe   {device_id, subscription, lat, lon, lang} -> {subscribed, geohash6}
+    POST /app/unsubscribe {device_id, endpoint} -> {subscribed: false}
 
 A report goes through the same worker.handle() as a WhatsApp message, with
 From "app:<device_id>" and channel "app", and the reply is returned instead of
@@ -22,8 +25,9 @@ import uuid
 import boto3
 from botocore.config import Config
 
-from common import db
-from common.config import REGION
+from common import db, push
+from common.config import REGION, secret
+from common.geo import geohash6
 from common.hashing import phone_hash
 from common.timeutil import now_iso
 from worker.app import handle
@@ -39,6 +43,7 @@ UPLOAD_URL_SECONDS = 300
 LANGS = {"en", "hi", "hinglish"}
 # India's bounding box (mainland and islands), generous by a little.
 INDIA_LAT, INDIA_LON = (6.0, 37.5), (68.0, 97.5)
+_B64URL = re.compile(r"[A-Za-z0-9_-]{16,200}={0,2}")
 _s3 = None
 
 
@@ -56,6 +61,12 @@ def handler(event, context):
             return report(body)
         if route == "POST /app/photo-url":
             return photo_url(body)
+        if route == "POST /app/subscribe":
+            return subscribe(body)
+        if route == "POST /app/unsubscribe":
+            return unsubscribe(body)
+        if route == "GET /app/push-key":
+            return reply(200, {"public_key": secret("vapid_public_key")})
     except (BadRequest, ValueError) as exc:
         return reply(400, {"error": str(exc) if isinstance(exc, BadRequest) else "Send valid JSON"})
     return reply(404, {"error": f"No route {route}"})
@@ -69,9 +80,7 @@ def report(body: dict):
     text = text.strip()
     if len(text) > MAX_TEXT:
         raise BadRequest(f"text must be at most {MAX_TEXT} characters")
-    lat, lon = _number(body.get("lat"), "lat"), _number(body.get("lon"), "lon")
-    if not (INDIA_LAT[0] <= lat <= INDIA_LAT[1] and INDIA_LON[0] <= lon <= INDIA_LON[1]):
-        raise BadRequest("lat and lon must be a place in India")
+    lat, lon = _india(body.get("lat"), body.get("lon"))
     lang = body.get("lang")
     if lang not in LANGS:
         raise BadRequest(f"lang must be one of {sorted(LANGS)}")
@@ -121,6 +130,51 @@ def photo_url(body: dict):
     )
     return reply(200, {"url": url, "photo_key": key, "expires_in": UPLOAD_URL_SECONDS,
                        "headers": {"Content-Type": content_type}})
+
+
+def subscribe(body: dict):
+    """Ask for warnings about one area: the browser's push subscription plus the point it cares about."""
+    device_id = _device_id(body.get("device_id"))
+    sub = body.get("subscription")
+    if not isinstance(sub, dict) or not isinstance(sub.get("keys"), dict):
+        raise BadRequest("subscription must be the browser's PushSubscription as JSON")
+    endpoint = sub.get("endpoint")
+    if not push.allowed_endpoint(endpoint):
+        raise BadRequest("subscription endpoint must be a browser push service")
+    p256dh, auth = sub["keys"].get("p256dh"), sub["keys"].get("auth")
+    if not all(isinstance(k, str) and _B64URL.fullmatch(k) for k in (p256dh, auth)):
+        raise BadRequest("subscription keys must be base64url")
+    lat, lon = _india(body.get("lat"), body.get("lon"))
+    lang = body.get("lang")
+    if lang not in LANGS:
+        raise BadRequest(f"lang must be one of {sorted(LANGS)}")
+    item = {
+        "subscription_id": push.subscription_id(endpoint), "endpoint": endpoint, "p256dh": p256dh, "auth": auth,
+        "geohash6": geohash6(lat, lon), "lang": lang, "device_hash": phone_hash(f"app:{device_id}"),
+        "created_at": now_iso(),
+    }
+    db.put_app_subscriber(item)
+    log.info("app device subscribed to warnings in cell %s", item["geohash6"])
+    return reply(201, {"subscribed": True, "geohash6": item["geohash6"]})
+
+
+def unsubscribe(body: dict):
+    device_id = _device_id(body.get("device_id"))
+    endpoint = body.get("endpoint")
+    if not isinstance(endpoint, str) or not endpoint:
+        raise BadRequest("endpoint must be the subscription's endpoint")
+    existing = db.get_app_subscriber(push.subscription_id(endpoint))
+    # Only the device that subscribed can remove it.
+    if existing and existing.get("device_hash") == phone_hash(f"app:{device_id}"):
+        db.delete_app_subscriber(existing["subscription_id"])
+    return reply(200, {"subscribed": False})
+
+
+def _india(lat, lon) -> tuple[float, float]:
+    lat, lon = _number(lat, "lat"), _number(lon, "lon")
+    if not (INDIA_LAT[0] <= lat <= INDIA_LAT[1] and INDIA_LON[0] <= lon <= INDIA_LON[1]):
+        raise BadRequest("lat and lon must be a place in India")
+    return lat, lon
 
 
 def _check_photo(key, device_id: str) -> None:

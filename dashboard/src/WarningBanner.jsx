@@ -11,7 +11,7 @@ export function rememberPin(point) {
   try { localStorage.setItem(LAST_PIN, JSON.stringify({ lat: point.lat, lon: point.lon })); } catch { /* private mode */ }
 }
 
-function lastPin() {
+export function lastPin() {
   try {
     const p = JSON.parse(localStorage.getItem(LAST_PIN) || "null");
     return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) ? p : null;
