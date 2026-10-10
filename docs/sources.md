@@ -14,15 +14,17 @@ Owner: C. Every number in the video and writeup must trace back to a line here. 
 | Judicial panel: the deaths were preventable; pipeline tender delays contributed | Confirmed | [DT Next](https://www.dtnext.in/news/national/indore-water-linked-deaths-preventable-pipeline-tender-delays-contributed-to-tragedy-judicial-panel) |
 | India's disease surveillance reacts once patients reach health facilities | Background | [IDSP reporting delays (CEGH)](https://www.ceghonline.com/article/S2213-3984(22)00072-0/fulltext) |
 
-## Timeline for the replay (to fill in)
+## Timeline for the replay
 
-Fill each row with a date and a link before building the replay. Mark approximate dates with `~`.
+Used by `scripts/replay.py` (see `docs/replay.md`). Approximate dates are marked `~`. Day 0 is the first illness.
 
 | Day | Date | Event | Source |
 |---|---|---|---|
-| 0 | | First complaints about foul or discoloured water | |
-| | | First people fall ill | |
-| | | Hospitalisations peak | |
-| | | First deaths reported | |
-| | | Supply stopped (Feb 6, 2026) | |
-| | | Judicial panel finding | |
+| ~−12 | ~15 Dec 2025 | Residents notice foul, discoloured water ("mid-December", approximate) | [Wikipedia: 2025 Indore drinking water contamination](https://en.wikipedia.org/wiki/2025_Indore_drinking_water_contamination) |
+| −2 | 25 Dec 2025 | Many households report a bitter taste and strong odour | [Wikipedia: 2025 Indore drinking water contamination](https://en.wikipedia.org/wiki/2025_Indore_drinking_water_contamination) |
+| 0 | 27 Dec 2025 | Residents fall ill with vomiting and diarrhoea | [Wikipedia: 2025 Indore drinking water contamination](https://en.wikipedia.org/wiki/2025_Indore_drinking_water_contamination) |
+| 2 | 29 Dec 2025 | The mayor confirms at least three deaths | [Wikipedia: 2025 Indore drinking water contamination](https://en.wikipedia.org/wiki/2025_Indore_drinking_water_contamination) |
+| | Feb 6, 2026 | Contaminated supply stopped (check exact wording before using) | [Wikipedia: 2025 Indore drinking water contamination](https://en.wikipedia.org/wiki/2025_Indore_drinking_water_contamination) |
+| | 1 Oct 2026 | Judicial commission: the contamination "could have been prevented" | [DT Next](https://www.dtnext.in/news/national/indore-water-linked-deaths-preventable-pipeline-tender-delays-contributed-to-tragedy-judicial-panel) |
+
+Not used: when hospitalisations peaked (no dated source yet).

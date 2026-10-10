@@ -3,7 +3,8 @@
     python scripts/fake_reports.py --near 22.7196,75.8577 --phones 5 --sick 1 --check
     python scripts/fake_reports.py --clean          # delete every fake report and the clusters they made
 
-Fake reports have ids starting with "fake-" and made-up phone hashes, so no
+Fake reports have ids starting with "fake-" (so do loaded replay reports, "fake-replay-…",
+which --clean also removes) and made-up phone hashes, so no
 real person is ever messaged because of them. They get made-up names, masked
 numbers and Hinglish or Hindi message text so the dashboard looks real; there
 is no Contacts row, so "Show number" says no number is on file. --check runs the cluster check
@@ -94,11 +95,12 @@ def add(session, lat: float, lon: float, phones: int, sick: int) -> None:
     print(f"Added {phones} fake reports ({sick} with illness) within 300 m of {lat}, {lon}")
 
 
-def clean(session) -> None:
+def clean(session, prefix: str = "fake-") -> None:
+    """Delete reports whose id starts with prefix (every fake and replay report by default), and their clusters."""
     reports = session.resource("dynamodb").Table(resource_id(session, "ReportsTable"))
     clusters = session.resource("dynamodb").Table(resource_id(session, "ClustersTable"))
     fake_cells, removed = set(), 0
-    scan = {"FilterExpression": Attr("report_id").begins_with("fake-")}
+    scan = {"FilterExpression": Attr("report_id").begins_with(prefix)}
     while True:
         page = reports.scan(**scan)
         for item in page["Items"]:
@@ -113,7 +115,7 @@ def clean(session) -> None:
         if fake_cells.intersection(item.get("cells", [])):
             clusters.delete_item(Key={"cluster_id": item["cluster_id"]})
             gone += 1
-    print(f"Deleted {removed} fake reports and {gone} clusters they formed")
+    print(f"Deleted {removed} reports starting {prefix!r} and {gone} clusters they formed")
 
 
 def run_check(session) -> None:
