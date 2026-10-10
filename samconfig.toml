@@ -18,3 +18,5 @@ resolve_s3 = true
 s3_prefix = "paanialert"
 confirm_changeset = false
 fail_on_empty_changeset = false
+# sam deploy keeps a parameter's previous value unless it's set here, so template defaults alone don't apply.
+parameter_overrides = "ModelEndpoint=\"mantle\" MantleRegion=\"ap-south-1\" ModelIds=\"deepseek.v3.1,qwen.qwen3-235b-a22b-2507,qwen.qwen3-vl-235b-a22b-instruct\""
