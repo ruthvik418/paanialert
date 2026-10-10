@@ -5,6 +5,9 @@
 - Still open ESCALATE_AFTER_MIN minutes after the alert: SNS to the district
   health officer, once.
 - No longer meeting the rule: status becomes expired.
+- One outbreak keeps one cluster: a result that overlaps an open or acknowledged
+  cluster continues it (same id, status and alert time), even when its strongest
+  cell moves.
 """
 from __future__ import annotations
 
@@ -39,20 +42,26 @@ def run() -> dict:
     current = now()
     reports = db.recent_reports(hours_ago_iso(48))
     notices = active_notice_cells(iso(current))
-    results = {r.cluster_id: r for r in evaluate(reports, current, notices)}
-    existing = {c.cluster_id: c for c in db.all_clusters()}
+    results = evaluate(reports, current, notices)
+    existing = db.all_clusters()
     summary = {"reports": len(reports), "clusters": len(results), "alerted": 0, "escalated": 0, "expired": 0}
+    matched: set[str] = set()
 
-    for cid, r in results.items():
-        prev = existing.get(cid)
+    for r in results:
+        prev = match(r, existing, matched)
+        if prev is None and r.cluster_id in matched:
+            log.warning("cluster id %s already taken this run; skipped", r.cluster_id)
+            continue
+        matched.add(prev.cluster_id if prev else r.cluster_id)
         cluster = Cluster(
-            cluster_id=cid, cells=r.cells, centre_lat=r.centre_lat, centre_lon=r.centre_lon,
+            cluster_id=prev.cluster_id if prev else r.cluster_id, cells=r.cells,
+            centre_lat=r.centre_lat, centre_lon=r.centre_lon,
             level=r.level, report_count=r.report_count, distinct_phones=r.distinct_phones,
             sick_households=r.sick_households, severity=r.severity,
-            status=prev.status if prev and prev.status != "expired" else "open",
-            first_seen=prev.first_seen if prev and prev.status != "expired" else r.first_seen,
-            alert_at=prev.alert_at if prev and prev.status != "expired" else None,
-            escalated_at=prev.escalated_at if prev and prev.status != "expired" else None,
+            status=prev.status if prev else "open",
+            first_seen=prev.first_seen if prev else r.first_seen,
+            alert_at=prev.alert_at if prev else None,
+            escalated_at=prev.escalated_at if prev else None,
         )
         if cluster.level == "alert" and cluster.alert_at is None and cluster.status == "open":
             cluster.alert_at = iso(current)
@@ -60,8 +69,8 @@ def run() -> dict:
             summary["alerted"] += 1
         db.put_cluster(cluster)
 
-    for cid, c in existing.items():
-        if cid not in results and c.status in ("open", "acknowledged"):
+    for c in existing:
+        if c.cluster_id not in matched and c.status in ("open", "acknowledged"):
             c.status = "expired"
             db.put_cluster(c)
             summary["expired"] += 1
@@ -74,6 +83,23 @@ def run() -> dict:
                 db.put_cluster(c)
                 summary["escalated"] += 1
     return summary
+
+
+def match(r, existing: list[Cluster], taken: set[str]) -> Cluster | None:
+    """The stored cluster this result continues, so one outbreak keeps one id as its strongest cell moves.
+
+    An open or acknowledged cluster whose cells overlap wins (the oldest if several);
+    otherwise a closed cluster with the same id carries on as before.
+    """
+    cells = set(r.cells)
+    live = [c for c in existing if c.cluster_id not in taken
+            and c.status in ("open", "acknowledged") and cells.intersection(c.cells)]
+    if live:
+        return min(live, key=lambda c: (c.first_seen or "", c.cluster_id))
+    same = next((c for c in existing if c.cluster_id == r.cluster_id), None)
+    if same and same.cluster_id not in taken and same.status != "expired":
+        return same
+    return None
 
 
 def send_alerts(c: Cluster) -> None:

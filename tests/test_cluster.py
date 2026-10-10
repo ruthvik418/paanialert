@@ -104,3 +104,51 @@ def test_closed_cluster_is_not_escalated(check, monkeypatch):
     db.update_cluster_status(cid, "fixed", iso(now()))
     monkeypatch.setattr(check, "ESCALATE_AFTER_MIN", 0)
     assert check.run()["escalated"] == 0
+
+
+def _put_recent(reports):
+    from common import db
+    from common.timeutil import iso, now
+
+    for r in reports:
+        r.created_at = iso(now() - timedelta(hours=1))
+        db.put_report(r)
+
+
+def _growing_outbreak(check):
+    """5 phones in one cell, then more one and two cells east, so the strongest cell moves east."""
+    from common import db
+    from common.timeutil import now
+
+    _put_recent([report(i) for i in range(5)])
+    db.put_subscriber("sub1", "whatsapp:+919800000001", geohash6(*INDORE), "en")
+    check.run()
+    first = db.all_clusters()[0]
+    _put_recent([report(10 + i, lon=INDORE[1] + 0.011) for i in range(3)]
+                + [report(20 + i, lon=INDORE[1] + 0.022) for i in range(4)])
+    moved = evaluate(db.recent_reports("2000-01-01T00:00:00Z"), now())[0]
+    assert moved.cluster_id != first.cluster_id     # the setup really moves the strongest cell
+    return first
+
+
+def test_moving_outbreak_alerts_once(check):
+    from common import db
+
+    first = _growing_outbreak(check)
+    check.run()
+    live = [c for c in db.all_clusters() if c.status != "expired"]
+    assert [c.cluster_id for c in live] == [first.cluster_id]
+    assert live[0].distinct_phones == 12 and live[0].alert_at == first.alert_at
+    assert len(check.sent) == 1 and len(check.published) == 1
+
+
+def test_acknowledged_cluster_stays_acknowledged_as_it_grows(check):
+    from common import db
+    from common.timeutil import now_iso
+
+    first = _growing_outbreak(check)
+    db.update_cluster_status(first.cluster_id, "acknowledged", now_iso())
+    summary = check.run()
+    c = db.get_cluster(first.cluster_id)
+    assert c.status == "acknowledged" and c.distinct_phones == 12
+    assert summary["expired"] == 0 and len(check.sent) == 1
