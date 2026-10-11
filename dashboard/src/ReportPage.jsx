@@ -1,8 +1,10 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
-import { Camera, CheckCircle, CircleNotch, Crosshair, Drop, Fire, FirstAidKit, ForkKnife, MapPin, Minus, Palette, PaperPlaneRight, Phone, Plus, Thermometer, Wind } from "@phosphor-icons/react";
+import { Camera, CheckCircle, CircleNotch, Crosshair, Drop, Fire, FirstAidKit, ForkKnife, MapPin, Microphone, Minus, Palette, PaperPlaneRight, Phone, Plus, Thermometer, Wind } from "@phosphor-icons/react";
 import MapView from "./MapView.jsx";
-import { ApiError, newRequestId, sendAppReport, uploadPhoto } from "./api.js";
+import { ApiError, clearPendingVoice, newRequestId, pendingVoice, savePendingVoice, sendAppReport, uploadAudio, uploadPhoto, waitForAppReport } from "./api.js";
 import { useLang } from "./i18n.js";
+import VoiceRecorder, { canRecord } from "./VoiceRecorder.jsx";
+import VoiceWait from "./VoiceWait.jsx";
 import WarningBanner, { rememberPin } from "./WarningBanner.jsx";
 import WarnMeToggle from "./WarnMeToggle.jsx";
 
@@ -81,9 +83,14 @@ export default function ReportPage() {
   const [photo, setPhoto] = useState(null);         // {blob, url, width, height}
   const [photoError, setPhotoError] = useState("");
   const [errors, setErrors] = useState({});
+  const [voice, setVoice] = useState(null);         // {blob, url, seconds}
+  const [recordable] = useState(canRecord);
   const [sending, setSending] = useState(false);
+  // A recording was sent and the page is waiting for the reply: {requestId, phase, started, timedOut}.
+  // phase: "uploading" | "listening" (Transcribe) | "reading" (the model).
+  const [wait, setWait] = useState(null);
   const [sendError, setSendError] = useState("");
-  const [result, setResult] = useState(null);       // {reply, saved}
+  const [result, setResult] = useState(null);       // {reply, saved, transcript?}
   const whatRef = useRef(null);
   const textRef = useRef(null);
   const locationRef = useRef(null);
@@ -95,6 +102,14 @@ export default function ReportPage() {
   useEffect(() => { document.title = t("rpDocTitle"); }, [t]);
   // The service worker makes the page installable as an app and shows a page when offline.
   useEffect(() => { navigator.serviceWorker?.register("/sw.js", { scope: "/" }).catch(() => {}); }, []);
+  // A voice report still being handled when the page was closed: pick up where it left off.
+  useEffect(() => {
+    const pending = pendingVoice();
+    if (!pending) return;
+    if (pending.pin) setPin(pending.pin);
+    follow(pending.requestId, pending.started, pending.pin).catch(() => { setWait(null); setSendError(t("rpFailed")); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => () => { if (photo) URL.revokeObjectURL(photo.url); }, [photo]);
   useEffect(() => {
     if (!result) return;
@@ -152,7 +167,7 @@ export default function ReportPage() {
   async function submit(e) {
     e.preventDefault();
     const found = {};
-    if (!message && !photo) found.text = t("rpNeedText");
+    if (!message && !photo && !voice) found.text = t("rpNeedText");
     if (message.length > MAX_TEXT) found.text = t("rpTooLong");
     if (!pin) found.location = t("rpNeedLocation");
     setErrors(found);
@@ -161,11 +176,18 @@ export default function ReportPage() {
 
     setSending(true);
     setSendError("");
+    const started = Date.now();
+    if (voice) setWait({ requestId: null, phase: "uploading", started, timedOut: false });
     try {
       const photoKey = photo ? await uploadPhoto(photo.blob) : undefined;
-      const res = await sendAppReport({ text: message, lat: pin.lat, lon: pin.lon, lang: replyLang, photoKey, requestId: requestId.current });
-      setResult(res);
+      // A recording is uploaded once per draft; sending again reuses it, and the same request_id.
+      if (voice && !voice.key) voice.key = await uploadAudio(voice.blob);
+      const audioKey = voice?.key;
+      const res = await sendAppReport({ text: message, lat: pin.lat, lon: pin.lon, lang: replyLang, photoKey, audioKey, requestId: requestId.current });
+      if (res.request_id && res.status !== "done") await follow(res.request_id, started);
+      else setResult(res);
     } catch (err) {
+      setWait(null);
       // The status and details are in the console (api.js); people get a plain message.
       if (err instanceof ApiError && err.status === 429) setSendError(t("rpLimit"));
       else if (err instanceof ApiError && err.kind === "timeout") setSendError(t("rpTimeout"));
@@ -179,12 +201,38 @@ export default function ReportPage() {
     }
   }
 
+  // Poll a queued voice report (75 s at most). A timeout isn't an error: the worker still has it,
+  // the request is remembered in this browser, and "Check Again" (or reopening the page) polls again.
+  async function follow(id, started, at = pin) {
+    savePendingVoice({ requestId: id, started, pin: at });
+    setWait({ requestId: id, phase: "listening", started, timedOut: false });
+    try {
+      const res = await waitForAppReport(id, (status) =>
+        setWait((w) => w && { ...w, phase: status === "reading" ? "reading" : "listening" }));
+      clearPendingVoice();
+      setWait(null);
+      setResult(res);
+    } catch (err) {
+      if (err instanceof ApiError && err.kind === "timeout") { setWait((w) => w && { ...w, timedOut: true }); return; }
+      clearPendingVoice();
+      throw err;
+    }
+  }
+
+  function changeVoice(next) {
+    // A new recording is a new draft for the server: it must not be matched to the old request.
+    if (voice?.key) requestId.current = newRequestId();
+    setVoice(next);
+    if (next) setErrors((x) => ({ ...x, text: "" }));
+  }
+
   function another() {
     requestId.current = newRequestId();
     setResult(null);
     setTiles(NO_TILES);
     setText("");
     setPhoto(null);
+    setVoice(null);
     setErrors({});
     setSendError("");
     setTimeout(() => whatRef.current?.focus(), 0);
@@ -202,6 +250,8 @@ export default function ReportPage() {
       <main id="report-main" className="rs-main">
         {result ? (
           <Confirmation result={result} replyLang={replyLang} pin={pin} resultRef={resultRef} onAnother={another} t={t} />
+        ) : wait ? (
+          <VoiceWait wait={wait} t={t} onCheckAgain={() => follow(wait.requestId, wait.started).catch(() => { setWait(null); setSendError(t("rpFailed")); })} />
         ) : (
           <>
             <h1>{t("rpTitle")}</h1>
@@ -248,6 +298,13 @@ export default function ReportPage() {
                       <output className="rs-stepper-value" aria-live="polite">{tiles.sick}</output>
                       <button type="button" aria-label={t("sickMore")} disabled={tiles.sick >= MAX_SICK} onClick={() => setTile({ sick: tiles.sick + 1 })}><Plus size={22} weight="bold" aria-hidden="true" /></button>
                     </div>
+                  </div>
+                )}
+
+                {recordable && (
+                  <div className="rs-follow">
+                    <p className="rs-follow-label" id="voice-label">{t("rpVoiceOr")}</p>
+                    <VoiceRecorder value={voice} onChange={changeVoice} t={t} describedBy="voice-label" />
                   </div>
                 )}
               </fieldset>
@@ -325,8 +382,10 @@ const Tile = forwardRef(function Tile({ icon: Icon, on, onClick, children }, ref
 });
 
 // The bot's reply starts "✅ Report saved: …" (what it understood); then advice and anything else as paragraphs.
-function splitReply(reply, saved) {
+// A reply to a recording starts with "I heard: …" first, which the card shows from the full transcript instead.
+function splitReply(reply, saved, transcript) {
   const parts = (reply || "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  if (transcript) parts.shift();
   let understood = null;
   if (saved && parts[0]?.startsWith("✅")) {
     const first = parts.shift().replace(/^✅\s*/, "");
@@ -339,13 +398,14 @@ function splitReply(reply, saved) {
 }
 
 function Confirmation({ result, replyLang, pin, resultRef, onAnother, t }) {
-  const { understood, rest } = splitReply(result.reply, result.saved);
+  const { understood, rest } = splitReply(result.reply, result.saved, result.transcript);
   return (
     <section className="rs-done" ref={resultRef} tabIndex={-1} aria-labelledby="done-title" aria-live="polite">
       <div className="rs-card">
         <h1 id="done-title" className="rs-done-title">
           {result.saved && <CheckCircle size={32} weight="fill" aria-hidden="true" />}{result.saved ? t("rpSentTitle") : t("rpReply")}
         </h1>
+        {result.transcript && <div className="rs-heard"><h2><Microphone size={20} weight="fill" aria-hidden="true" />{t("rpHeard")}</h2><p>“{result.transcript}”</p></div>}
         {understood && <div className="rs-understood"><h2>{t("rpUnderstood")}</h2><p>{understood}</p></div>}
         {rest.map((p, i) => <p key={i} className="rs-reply">{p}</p>)}
         {!result.saved && <p className="rs-hint">{t("rpNotSaved")}</p>}

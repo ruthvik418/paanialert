@@ -48,6 +48,7 @@ class Report:
     phone_masked: str | None = None  # e.g. "+91 98•••••210"; the full number is only in Contacts
     extracted_by: str | None = None  # "agent:<model id>" or "keywords"; None on reports from before Oct 10
     channel: Literal["whatsapp", "app"] = "whatsapp"   # how it arrived: WhatsApp or the web report page
+    input_type: Literal["text", "voice", "tds"] = "text"   # voice: text is a Transcribe transcript ("🎤 …")
     status: ReportStatus = "new"
     status_note: str | None = None   # the official's note with the status, up to 200 characters
     status_at: str | None = None

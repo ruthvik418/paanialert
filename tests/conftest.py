@@ -25,6 +25,7 @@ os.environ.update({
     "APP_QUOTA_TABLE": "AppQuota",
     "ADVISORIES_TABLE": "Advisories",
     "APP_SUBSCRIBERS_TABLE": "AppSubscribers",
+    "APP_REQUESTS_TABLE": "AppRequests",
     "MEDIA_BUCKET": "media-test",
     "AREA_LOOKUP": "off",
 })
@@ -81,6 +82,7 @@ def aws():
         _table(ddb, "AuditLog", "audit_id")
         _table(ddb, "Activity", "activity_id")
         _table(ddb, "AppQuota", "quota_id")
+        _table(ddb, "AppRequests", "request_id")
         _table(ddb, "Advisories", "advisory_id")
         _table(ddb, "AppSubscribers", "subscription_id", extra_attrs=("geohash6",), indexes=[{
             "IndexName": "by-cell",
@@ -104,7 +106,11 @@ def aws():
         config.secret.cache_clear()
         db._resource = None
         webhook_app._sqs = None
+        import api.app_report as app_report
+        app_report._sqs = None
         yield
         config.secret.cache_clear()
         db._resource = None
         webhook_app._sqs = None
+        import api.app_report as app_report
+        app_report._sqs = None

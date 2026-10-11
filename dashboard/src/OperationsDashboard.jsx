@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MapView, { PLACES } from "./MapView.jsx";
-import { getActivity, getAdvisories, getClusters, getHealth, getReports, liftAdvisory, setClusterStatus, setReportStatus, Unauthorised } from "./api.js";
+import { getActivity, getAdvisories, getAudioUrl, getClusters, getHealth, getReports, liftAdvisory, setClusterStatus, setReportStatus, Unauthorised } from "./api.js";
 import { ago, describeReport, levelLabel, sickLabel, statusLabel } from "./format.js";
 import { useLang } from "./i18n.js";
 import { KIND_LABEL, WarningDialog, WarningList } from "./Warnings.jsx";
-import { Bell, ChatCircleText, CheckCircle, CircleNotch, Drop, ListBullets, Megaphone, Siren, SignOut, SquaresFour, WarningCircle } from "@phosphor-icons/react";
+import { Bell, ChatCircleText, CheckCircle, CircleNotch, Drop, ListBullets, Megaphone, Microphone, Play, Siren, SignOut, SquaresFour, WarningCircle } from "@phosphor-icons/react";
 import { AppIcon, LevelBadge, StatusBadge, activityTone } from "./StatusBits.jsx";
 
 const ACTIVE = new Set(["open", "acknowledged"]);
@@ -258,7 +258,7 @@ export default function OperationsDashboard({ dashboardKey, onSignOut }) {
             {!["reports", "activity", "notifications", "warnings"].includes(page) && <div className="filter-row"><label><span className="visually-hidden">Status filter</span><select name="status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="active">Active status</option><option value="all">All statuses</option><option value="open">Open</option><option value="acknowledged">Acknowledged</option><option value="fixed">Fixed</option><option value="false_alarm">False alarm</option></select></label><label><span className="visually-hidden">Severity filter</span><select name="level-filter" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}><option value="all">All levels</option><option value="alert">Alert</option><option value="watch">Watch</option><option value="none">None</option></select></label></div>}
             <div className="queue-scroll" aria-live="polite">
               {loading && <LoadingState />}
-              {page === "reports" ? <ul className="list">{!loading && !shownReports.length && <Empty text={error ? "Reports are unavailable. Try refreshing." : "No reports match this search."} />}{shownReports.map((r) => <li key={r.report_id} className={`queue-item ${selected?.id === r.report_id ? "selected" : ""}`}><button type="button" className="queue-select" aria-expanded={selected?.id === r.report_id} onClick={() => setSelected(selected?.id === r.report_id ? null : { type: "report", id: r.report_id })}><span className="item-title">{describeReport(r, t)}{r.channel === "app" && <AppTag />}</span><span>{r.area || "Location unavailable"}</span><span>{sickLabel(r, t)} · {ago(r.created_at, t)}</span></button>{selected?.id === r.report_id && <ReportDetail report={r} t={t} onStatus={(status, note) => saveReportStatus(r, status, note)} onWarn={Number.isFinite(r.lat) && Number.isFinite(r.lon) ? () => openWarning({ lat: r.lat, lon: r.lon, label: r.area || "this report", report_id: r.report_id }) : null} />}</li>)}</ul>
+              {page === "reports" ? <ul className="list">{!loading && !shownReports.length && <Empty text={error ? "Reports are unavailable. Try refreshing." : "No reports match this search."} />}{shownReports.map((r) => <li key={r.report_id} className={`queue-item ${selected?.id === r.report_id ? "selected" : ""}`}><button type="button" className="queue-select" aria-expanded={selected?.id === r.report_id} onClick={() => setSelected(selected?.id === r.report_id ? null : { type: "report", id: r.report_id })}><span className="item-title">{describeReport(r, t)}{r.channel === "app" && <AppTag />}{r.input_type === "voice" && <VoiceTag />}</span><span>{r.area || "Location unavailable"}</span><span>{sickLabel(r, t)} · {ago(r.created_at, t)}</span></button>{selected?.id === r.report_id && <ReportDetail report={r} t={t} dashboardKey={dashboardKey} onStatus={(status, note) => saveReportStatus(r, status, note)} onWarn={Number.isFinite(r.lat) && Number.isFinite(r.lon) ? () => openWarning({ lat: r.lat, lon: r.lon, label: r.area || "this report", report_id: r.report_id }) : null} />}</li>)}</ul>
                 : page === "warnings" ? <WarningList advisories={advisories} liftingId={liftingId} onLift={lift} onShow={(a) => setFitCircle({ id: a.advisory_id, lat: a.lat, lon: a.lon, radius_m: a.radius_m })} />
                 : page === "activity" || page === "notifications" ? <>{activityError && <p className="inline-warning" role="status">Activity history is temporarily unavailable. Refresh to try again.</p>}<ActivityList rows={activityRows} clusters={clusters} locationOf={locationOf} onSelect={(c) => { setPage("incidents"); onShowCluster(c); }} /></>
                   : <ul className="list">{!loading && !shownClusters.length && <Empty text={error ? "Incidents could not be loaded. Try refreshing." : query ? "No incidents match these filters." : "No active incidents in this service area."} />}{shownClusters.map((c) => <li key={c.cluster_id} className={`queue-item incident-item ${selected?.id === c.cluster_id ? "selected" : ""}`}><button type="button" className="queue-select" aria-expanded={selected?.id === c.cluster_id} onClick={() => setSelected(selected?.id === c.cluster_id ? null : { type: "cluster", id: c.cluster_id })}><span className="item-top"><LevelBadge level={c.level}>{levelLabel(c.level, t)}</LevelBadge><StatusBadge status={c.status}>{statusLabel(c.status, t)}</StatusBadge></span><span className="item-title">{locationOf(c)}</span><span>{c.report_count} reports · {c.distinct_phones} reporters{c.sick_households ? ` · ${c.sick_households} sick households` : ""}</span><span>First report {ago(c.first_seen, t)}</span></button>{selected?.id === c.cluster_id && <IncidentDetail cluster={c} location={locationOf(c)} reports={reports} activity={activity} t={t} onAction={(action) => setConfirm({ ...action, cluster: c })} onWarn={() => openWarning({ lat: c.centre_lat, lon: c.centre_lon, label: locationOf(c), cluster_id: c.cluster_id })} />}</li>)}</ul>}
@@ -287,6 +287,34 @@ function SectionHeading({ heading, subheading, children }) {
 // Reports sent from the web report page (/report) rather than WhatsApp.
 function AppTag() {
   return <span className="app-tag" title="Sent from the web report app"><AppIcon /><span className="visually-hidden">Sent from the web report app</span></span>;
+}
+
+// Reports sent as a voice note (WhatsApp) or a recording (web app), transcribed by Amazon Transcribe.
+function VoiceTag() {
+  return <span className="voice-tag"><Microphone size={14} weight="fill" aria-hidden="true" />Voice</span>;
+}
+
+// The transcript, and the recording itself through a 5-minute link fetched when an official asks to play it.
+function VoiceNote({ report, dashboardKey }) {
+  const [url, setUrl] = useState(null);
+  const [state, setState] = useState("idle");   // idle | loading | error
+  const transcript = (report.text || "").replace(/^🎤\s*/, "");
+  async function play() {
+    setState("loading");
+    try { setUrl(await getAudioUrl(dashboardKey, report.report_id)); setState("idle"); }
+    catch { setState("error"); }
+  }
+  return <div className="voice-note">
+    <p className="voice-note-label"><Microphone size={14} weight="fill" aria-hidden="true" />Voice report · transcript by Amazon Transcribe</p>
+    {transcript && <blockquote lang={report.lang === "hi" ? "hi" : undefined}>{transcript}</blockquote>}
+    {report.audio_key && (url
+      ? <audio controls autoPlay src={url} aria-label="Recording of this voice report" />
+      : <button type="button" className="secondary-action" onClick={play} disabled={state === "loading"}>
+          {state === "loading" ? <CircleNotch className="spin" size={14} aria-hidden="true" /> : <Play size={14} weight="fill" aria-hidden="true" />}
+          {state === "loading" ? "Loading…" : "Play Recording"}
+        </button>)}
+    {state === "error" && <p className="inline-warning" role="alert">The recording is unavailable (recordings are kept for 7 days).</p>}
+  </div>;
 }
 
 function Empty({ text }) {
@@ -327,9 +355,10 @@ function ReportStatus({ report, onStatus }) {
   </div>;
 }
 
-function ReportDetail({ report, t, onStatus, onWarn }) {
+function ReportDetail({ report, t, dashboardKey, onStatus, onWarn }) {
   const time = report.created_at ? new Date(report.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Not recorded";
   return <><dl className="detail"><dt>Report ID</dt><dd>{report.report_id}</dd><dt>Sent from</dt><dd>{report.channel === "app" ? <span className="inline-icon"><AppIcon />Web report app</span> : "WhatsApp"}</dd>{report.extracted_by && <><dt>Extracted by</dt><dd><span className={`extraction-source${report.extracted_by === "keywords" ? " keywords" : ""}`}>{report.extracted_by}</span></dd></>}<dt>Reported</dt><dd>{time}</dd><dt>Location</dt><dd>{report.area || report.landmark || "Unavailable"}</dd><dt>Water concerns</dt><dd>{describeReport(report, t)}</dd><dt>Health reports</dt><dd>{sickLabel(report, t)}</dd>{report.symptoms?.length > 0 && <><dt>Symptoms</dt><dd>{report.symptoms.map((symptom) => t(`symptom_${symptom}`)).join(", ")}</dd></>}{report.source && report.source !== "unknown" && <><dt>Water source</dt><dd>{report.source}</dd></>}</dl>
+    {report.input_type === "voice" && <VoiceNote report={report} dashboardKey={dashboardKey} />}
     {onStatus && <ReportStatus report={report} onStatus={onStatus} />}
     {onWarn && <div className="actions"><button type="button" className="danger-action" onClick={onWarn}>Issue Warning…</button></div>}</>;
 }
