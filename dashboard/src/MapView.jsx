@@ -29,6 +29,8 @@ const clusterColour = (c) => ["case",
   ["match", ["get", "level"], "alert", c.alert, "watch", c.watch, c.falseAlarm]];
 
 const PICK_MIN_ZOOM = 12;
+// Shared empty defaults: a new [] on every render would re-run the fit-to-data effect and undo any zoom.
+const NONE = [];
 // A cluster covers roughly 500 m; this keeps the circle that size on the ground at any zoom.
 const RADIUS_500M = ["interpolate", ["exponential", 2], ["zoom"], 10, 3.5, 18, 887];
 
@@ -51,7 +53,7 @@ function toGeoJSON(items, props) {
 // `circles` = [{id, lat, lon, radius_m, kind: "boil"|"do_not_use", draft}]: warning areas; a draft is dashed.
 // `fitCircle` = one of them to zoom to (when its id or radius changes).
 // `theme` = "dark" | "light": map style and status colours (theme.js).
-export default function MapView({ reports = [], clusters = [], circles = [], fitCircle, place = "all", label = "Map", focus, onSelectCluster, onSelectReport, onPick, pin, pickCentreLabel, theme = "dark", failedText }) {
+export default function MapView({ reports = NONE, clusters = NONE, circles = NONE, fitCircle, place = "all", label = "Map", focus, onSelectCluster, onSelectReport, onPick, pin, pickCentreLabel, theme = "dark", failedText }) {
   const box = useRef(null);
   const [mapFailed, setMapFailed] = useState(false);
   // "Use Map Centre" only once zoomed in to street level, so the default country view can't become a pin.

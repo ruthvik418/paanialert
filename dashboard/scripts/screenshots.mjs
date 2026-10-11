@@ -88,6 +88,12 @@ const REPLY = {
   hi: "✅ शिकायत दर्ज: पीला पानी, बदबू, 2 दिन से, घर में 2 बीमार।\n\nपीने का पानी कम से कम 1 मिनट उबालकर पिएं। दस्त हो तो ORS दें। मल में खून या पानी की कमी के लक्षण हों तो 108 पर कॉल करें।",
 };
 
+// Step 2 on /report: the device location (granted, at Rajwada), then the zoom-in.
+async function useMyLocation(page) {
+  await page.locator("fieldset.rs-step").nth(1).locator(".rs-button-secondary").click();
+  await page.waitForTimeout(1500);
+}
+
 function answer(path, method) {
   if (path === "/health") return { ok: true };
   if (path === "/reports") return { reports: REPORTS };
@@ -99,6 +105,7 @@ function answer(path, method) {
     level: c.level, lat: +c.centre_lat.toFixed(3), lon: +c.centre_lon.toFixed(3), report_count: c.report_count,
     sick_households: c.sick_households, status: c.status, first_seen: c.first_seen, alert_at: c.alert_at || null })) };
   if (path === "/public/advisories") return { advisories: ADVISORIES.filter((a) => a.status === "active").map(({ lat, lon, radius_m, kind, created_at }) => ({ lat, lon, radius_m, kind, created_at })) };
+  if (path === "/app/area") return { area: "Rajwada, Indore" };
   if (path === "/app/report") return { reply: REPLY[LANG] || REPLY.en, report_id: "fake-new", saved: true };
   return null;
 }
@@ -120,9 +127,7 @@ const SHOTS = [
     } else {
       await box.fill("Nal ka paani peela aa raha hai, badboo hai, 2 din se. 2 log bimar.");
     }
-    // Before the redesign the attribution box covered this button at 360 px, so a real tap failed.
-    if (await page.locator(".rs-tile").count()) await page.locator(".map-pick-centre").click();
-    else await page.locator(".map-pick-centre").dispatchEvent("click");
+    await useMyLocation(page);
     await page.locator("button[type=submit]").click();
     await page.waitForTimeout(800);
   } },
@@ -132,7 +137,7 @@ const SHOTS = [
     await page.locator(".rs-tile").nth(0).click();
     await page.locator(".rs-tile").nth(3).click();
     await page.locator(".rs-stepper button").nth(1).click();
-    await page.locator(".map-pick-centre").click();
+    await useMyLocation(page);
   } },
   { name: "public", path: "/public" },
   { name: "dashboard", path: "/" },
@@ -159,7 +164,7 @@ const redesigned = !process.argv.includes("--before");
 for (const shot of SHOTS.filter((s) => redesigned || !s.after)) {
   for (const size of shot.sizes || ["phone", "desktop"]) {
     const context = await browser.newContext({ viewport: SIZES[size], deviceScaleFactor: 1, serviceWorkers: "block",
-      geolocation: { latitude: 22.7196, longitude: 75.8577 }, permissions: [], locale: LANG === "hi" ? "hi-IN" : "en-IN" });
+      geolocation: { latitude: 22.7196, longitude: 75.8577 }, permissions: ["geolocation"], locale: LANG === "hi" ? "hi-IN" : "en-IN" });
     await context.addInitScript(([lang]) => {
       sessionStorage.setItem("paanialert-dashboard-key", "screenshot-key");
       localStorage.setItem("paanialert-lang", lang);
