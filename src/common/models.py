@@ -42,13 +42,12 @@ class Report:
     audio_key: str | None = None
     lang: str = "unknown"            # "hi", "en" or "hinglish"
     source: Source = "unknown"
-    tds: int | None = None           # mg/L, only after the user confirms the reading
     text: str | None = None          # the resident's original message, up to 1000 characters
     profile_name: str | None = None  # WhatsApp profile name (Twilio ProfileName)
     phone_masked: str | None = None  # e.g. "+91 98•••••210"; the full number is only in Contacts
     extracted_by: str | None = None  # "agent:<model id>" or "keywords"; None on reports from before Oct 10
     channel: Literal["whatsapp", "app"] = "whatsapp"   # how it arrived: WhatsApp or the web report page
-    input_type: Literal["text", "voice", "tds"] = "text"   # voice: text is a Transcribe transcript ("🎤 …")
+    input_type: Literal["text", "voice"] = "text"   # voice: text is a Transcribe transcript ("🎤 …")
     status: ReportStatus = "new"
     status_note: str | None = None   # the official's note with the status, up to 200 characters
     status_at: str | None = None
