@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { Camera, CheckCircle, CircleNotch, Crosshair, Drop, Fire, FirstAidKit, ForkKnife, MapPin, Microphone, Minus, Palette, PaperPlaneRight, Phone, Plus, Thermometer, Wind } from "@phosphor-icons/react";
 import MapView from "./MapView.jsx";
-import { ApiError, clearPendingVoice, newRequestId, pendingVoice, savePendingVoice, sendAppReport, uploadAudio, uploadPhoto, waitForAppReport } from "./api.js";
+import { ApiError, clearPendingVoice, getArea, newRequestId, pendingVoice, savePendingVoice, sendAppReport, uploadAudio, uploadPhoto, waitForAppReport } from "./api.js";
 import { useLang } from "./i18n.js";
 import VoiceRecorder, { canRecord } from "./VoiceRecorder.jsx";
 import VoiceWait from "./VoiceWait.jsx";
@@ -77,7 +77,8 @@ export default function ReportPage() {
   const [replyLang, setReplyLang] = useState(lang === "hi" ? "hi" : "en");
   const [tiles, setTiles] = useState(NO_TILES);
   const [text, setText] = useState("");
-  const [pin, setPin] = useState(null);             // {lat, lon, fly}
+  const [pin, setPin] = useState(null);             // {lat, lon, fly}: only a place the person chose
+  const [area, setArea] = useState("");             // the pin's place name, e.g. "Rajwada, Indore"
   const [locating, setLocating] = useState(false);
   const [locationNote, setLocationNote] = useState("");
   const [photo, setPhoto] = useState(null);         // {blob, url, width, height}
@@ -133,6 +134,8 @@ export default function ReportPage() {
   function pick(point, fly = false) {
     if (!inIndia(point)) { setLocationNote(t("rpOutsideIndia")); return; }
     setPin({ lat: point.lat, lon: point.lon, fly });
+    setArea("");
+    getArea(point).then(setArea).catch(() => {});   // the coordinates are shown until (or unless) a name arrives
     rememberPin(point);
     setLocationNote("");
     setErrors((e) => ({ ...e, location: "" }));
@@ -317,10 +320,11 @@ export default function ReportPage() {
                   {locating ? t("rpLocating") : t("rpUseLocation")}
                 </button>
                 <p className={`rs-hint${pin ? " rs-hint-ok" : ""}`} aria-live="polite">
-                  {pin ? <><CheckCircle size={20} weight="fill" aria-hidden="true" />{t("rpLocated")} <span className="rs-num">({pin.lat.toFixed(4)}, {pin.lon.toFixed(4)})</span></> : (locationNote || t("rpMapHelp"))}
+                  {pin ? <><CheckCircle size={20} weight="fill" aria-hidden="true" />{t("rpLocated")}{area ? `: ${area}` : ""} <span className="rs-num">({pin.lat.toFixed(4)}, {pin.lon.toFixed(4)})</span></>
+                    : (locationNote || <>{t("rpNotSet")} {t("rpMapHelp")}</>)}
                 </p>
                 <div className="rs-map">
-                  <MapView theme="light" place="all" label={t("rpMapLabel")} onPick={(p) => pick(p)} pin={pin} pickCentreLabel={t("rpUseCentre")}
+                  <MapView theme="light" place="all" label={t("rpMapLabel")} onPick={(p) => pick(p, true)} pin={pin} pickCentreLabel={t("rpUseCentre")}
                     failedText={[t("pubMapFailed"), t("rpMapFailedHelp")]} />
                 </div>
                 {errors.location && <p className="rs-error" id="report-location-error">{errors.location}</p>}

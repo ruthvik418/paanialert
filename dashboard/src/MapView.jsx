@@ -28,6 +28,7 @@ const clusterColour = (c) => ["case",
   ["==", ["get", "status"], "false_alarm"], c.falseAlarm,
   ["match", ["get", "level"], "alert", c.alert, "watch", c.watch, c.falseAlarm]];
 
+const PICK_MIN_ZOOM = 12;
 // A cluster covers roughly 500 m; this keeps the circle that size on the ground at any zoom.
 const RADIUS_500M = ["interpolate", ["exponential", 2], ["zoom"], 10, 3.5, 18, 887];
 
@@ -53,6 +54,8 @@ function toGeoJSON(items, props) {
 export default function MapView({ reports = [], clusters = [], circles = [], fitCircle, place = "all", label = "Map", focus, onSelectCluster, onSelectReport, onPick, pin, pickCentreLabel, theme = "dark", failedText }) {
   const box = useRef(null);
   const [mapFailed, setMapFailed] = useState(false);
+  // "Use Map Centre" only once zoomed in to street level, so the default country view can't become a pin.
+  const [closeEnough, setCloseEnough] = useState(false);
   const map = useRef(null);
   const popup = useRef(null);
   const ready = useRef(false);
@@ -73,8 +76,10 @@ export default function MapView({ reports = [], clusters = [], circles = [], fit
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     // Only a style that can't load means "no map". A missing tile, glyph or a layer error isn't a dead map.
     m.on("error", (e) => { if (!ready.current && !e.sourceId && !e.tile && !m.isStyleLoaded()) setMapFailed(true); });
+    m.on("zoomend", () => setCloseEnough(m.getZoom() >= PICK_MIN_ZOOM));
     m.on("load", () => {
       setMapFailed(false);
+      setCloseEnough(m.getZoom() >= PICK_MIN_ZOOM);
       m.getContainer().querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");
       m.addSource("clusters", { type: "geojson", data: toGeoJSON([], clusterProps) });
       m.addSource("reports", { type: "geojson", data: toGeoJSON([], reportProps) });
@@ -194,7 +199,7 @@ export default function MapView({ reports = [], clusters = [], circles = [], fit
 
   return <><div ref={box} className="map" role="region" aria-label={label} />
     {onPick && pickCentreLabel && <span className="map-crosshair" aria-hidden="true" />}
-    {onPick && pickCentreLabel && <button type="button" className="map-pick-centre" onClick={pickCentre}><Crosshair size={20} weight="bold" aria-hidden="true" />{pickCentreLabel}</button>}
+    {onPick && pickCentreLabel && closeEnough && <button type="button" className="map-pick-centre" onClick={pickCentre}><Crosshair size={20} weight="bold" aria-hidden="true" />{pickCentreLabel}</button>}
     {mapFailed && <div className="map-provider-error" role="status"><WarningCircle size={18} weight="bold" aria-hidden="true" /><span><strong>{failedText?.[0] || "Map tiles unavailable"}</strong><span>{failedText?.[1] || "Use the incident list to review locations while the map service is unavailable."}</span></span></div>}</>;
 }
 
@@ -212,10 +217,12 @@ const clusterProps = {
   }),
 };
 
+// On load: frame the active clusters and the reports (closed clusters only when nothing is active), at most zoom 14.
 function fitAll(m, { reports, clusters }) {
+  const active = clusters.filter((c) => ["open", "acknowledged"].includes(c.status || "open"));
   const points = [
     ...reports.filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lon) && Math.abs(r.lat) <= 90 && Math.abs(r.lon) <= 180).map((r) => [r.lon, r.lat]),
-    ...clusters.map((c) => [c.centre_lon ?? c.lon, c.centre_lat ?? c.lat]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) <= 180 && Math.abs(y) <= 90),
+    ...(active.length ? active : clusters).map((c) => [c.centre_lon ?? c.lon, c.centre_lat ?? c.lat]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) <= 180 && Math.abs(y) <= 90),
   ];
   if (points.length === 0) {
     m.flyTo({ center: PLACES.all.center, zoom: PLACES.all.zoom });

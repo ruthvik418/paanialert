@@ -154,3 +154,11 @@ def test_photo_that_was_never_uploaded_is_a_400(app):
 def test_photo_url_refuses_other_types_and_big_files(app, changes):
     body = {"device_id": DEVICE, "content_type": "image/jpeg", "size": 1000, **changes}
     assert call(app, "/app/photo-url", body)[0] == 400
+
+
+def test_area_names_a_pin_in_india(app, monkeypatch):
+    monkeypatch.setattr(app, "area_name", lambda lat, lon: "Rajwada, Indore")
+    resp = app.handler({"routeKey": "GET /app/area", "queryStringParameters": {"lat": "22.7196", "lon": "75.8577"}}, None)
+    assert resp["statusCode"] == 200 and json.loads(resp["body"]) == {"area": "Rajwada, Indore"}
+    for bad in ({"lat": "51.5", "lon": "-0.12"}, {"lat": "x", "lon": "75.8"}, {}):
+        assert app.handler({"routeKey": "GET /app/area", "queryStringParameters": bad}, None)["statusCode"] == 400

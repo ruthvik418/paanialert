@@ -172,6 +172,10 @@ export async function waitForAppReport(requestId, onStatus = () => {}) {
 
 export const newRequestId = newId;
 
+// The place name for a pin ("Rajwada, Indore"), or "" if there isn't one.
+export const getArea = ({ lat, lon }) =>
+  send("GET", `${API}/app/area?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`, {}).then((d) => d.area || "");
+
 /* Officials' actions (dashboard key) */
 
 export const setReportStatus = (key, id, status, note) =>

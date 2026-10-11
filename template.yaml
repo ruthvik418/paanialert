@@ -87,6 +87,7 @@ Resources:
         "POST /app/subscribe": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 5 }
         "POST /app/unsubscribe": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 5 }
         "GET /app/push-key": { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 10 }
+        "GET /app/area": { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 10 }
 
   DependenciesLayer:
     Type: AWS::Serverless::LayerVersion
@@ -459,6 +460,9 @@ Resources:
         PushKey:
           Type: HttpApi
           Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /app/push-key }
+        Area:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /app/area }
 
   # Clusters and alerts
 

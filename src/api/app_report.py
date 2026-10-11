@@ -10,6 +10,7 @@ Public routes (no dashboard key), throttled in template.yaml:
     GET  /app/report/{request_id}?device_id=...
                           -> {status: processing|reading|done|failed, reply?, transcript?, saved?, report_id?}
     GET  /app/push-key    -> {public_key}   (VAPID, for "Warn me about my area")
+    GET  /app/area?lat=&lon= -> {area}      (place name for the pin, or null)
     POST /app/subscribe   {device_id, subscription, lat, lon, lang} -> {subscribed, geohash6}
     POST /app/unsubscribe {device_id, endpoint} -> {subscribed: false}
 
@@ -39,6 +40,7 @@ from common import db, push
 from common.config import REGION, secret
 from common.geo import geohash6
 from common.hashing import phone_hash
+from common.places import area_name
 from common.timeutil import now_iso
 from worker.app import handle
 
@@ -82,6 +84,10 @@ def handler(event, context):
             return subscribe(body)
         if route == "POST /app/unsubscribe":
             return unsubscribe(body)
+        if route == "GET /app/area":
+            params = event.get("queryStringParameters") or {}
+            lat, lon = _india(_query_number(params.get("lat")), _query_number(params.get("lon")))
+            return reply(200, {"area": area_name(lat, lon)})
         if route == "GET /app/push-key":
             return reply(200, {"public_key": secret("vapid_public_key")})
     except (BadRequest, ValueError) as exc:
@@ -266,6 +272,14 @@ def _uuid(value, name: str) -> str:
         except ValueError:
             pass
     raise BadRequest(f"{name} must be a UUID")
+
+
+def _query_number(value):
+    """A number from the query string, or the raw value so _india() reports it."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return value
 
 
 def _number(value, name: str) -> float:
