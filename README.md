@@ -4,6 +4,8 @@ Early warning for unsafe drinking water, from the complaints that come before th
 
 [Demo video](VIDEO_URL) · [Try it](https://main.dy95ki8l9ef8x.amplifyapp.com/report) · [Officials' dashboard](https://main.dy95ki8l9ef8x.amplifyapp.com) · [Public map](https://main.dy95ki8l9ef8x.amplifyapp.com/public) · [Android app](https://github.com/ruthvik418/paanialert/releases/latest/download/PaaniAlert.apk) · [Blog](https://builder.aws.com/content/3KVDhzdtnzTIOfokqoHnDwflBgn/the-complaints-nobody-connected) · [Chat on WhatsApp](https://wa.me/14155238886?text=join%20either-tried)
 
+**Dashboard Access Key** - 72f298f32f78b3cd4adfabaf
+
 Built by Team Crystal Red for the WeMakeDevs × AWS Environmental Hacks, Oct 8–11, 2026 (Heat and Water track).
 
 ## Try it in 2 minutes (for judges)
