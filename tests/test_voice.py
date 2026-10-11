@@ -200,7 +200,7 @@ def poll(app, device=DEVICE):
     return call(app, "GET", "/app/report/{request_id}", path={"request_id": REQUEST}, query={"device_id": device})
 
 
-def test_web_voice_report_is_async(app, worker):
+def test_web_voice_report_is_async(app, worker, monkeypatch):
     from common import db
 
     audio_key = upload_recording(app)
@@ -215,9 +215,13 @@ def test_web_voice_report_is_async(app, worker):
     messages = queued_messages()
     assert len(messages) == 1
 
+    seen = []
+    real_finish = db.finish_app_request
+    monkeypatch.setattr(db, "finish_app_request", lambda rid, status, **kw: seen.append(status) or real_finish(rid, status, **kw))
     worker.heard(("The water is brown and smells like sewage", "en-IN"))
     worker.handler({"Records": [{"body": m["Body"], "attributes": m["Attributes"]} for m in messages]}, None)
     assert worker.calls == [("media-test", audio_key, "webm")]
+    assert seen == ["reading", "done"]                    # the page ticks off "Listening", then shows the reply
 
     status, done = poll(app)
     assert status == 200 and done["status"] == "done" and done["saved"] is True

@@ -136,11 +136,28 @@ export const sendAppReport = ({ text, lat, lon, lang, photoKey, audioKey, reques
 export const getAppReport = (requestId) =>
   send("GET", `${API}/app/report/${encodeURIComponent(requestId)}?device_id=${encodeURIComponent(deviceId())}`, {});
 
+// The voice report this browser is waiting for, so closing and reopening /report picks it up again.
+const PENDING_STORE = "paanialert-pending-voice";
+const PENDING_DAYS = 1;   // AppRequests rows expire after a day
+export function pendingVoice() {
+  try {
+    const p = JSON.parse(localStorage.getItem(PENDING_STORE) || "null");
+    return p && Date.now() - p.started < PENDING_DAYS * 864e5 ? p : null;
+  } catch { return null; }
+}
+export function savePendingVoice(p) {
+  try { localStorage.setItem(PENDING_STORE, JSON.stringify(p)); } catch { /* private mode: this visit only */ }
+}
+export function clearPendingVoice() {
+  try { localStorage.removeItem(PENDING_STORE); } catch { /* nothing kept */ }
+}
+
 const POLL_MS = 2000;
 export const VOICE_WAIT_MS = 75000;
 
 // Poll a voice report every 2 s until it's done, for at most 75 s. Throws ApiError kind "timeout" or "failed".
-export async function waitForAppReport(requestId) {
+// onStatus gets each in-between status: "processing" (being transcribed) or "reading" (transcribed).
+export async function waitForAppReport(requestId, onStatus = () => {}) {
   const until = performance.now() + VOICE_WAIT_MS;
   while (performance.now() < until) {
     await new Promise((r) => setTimeout(r, POLL_MS));
@@ -148,6 +165,7 @@ export async function waitForAppReport(requestId) {
     try { res = await getAppReport(requestId); } catch (err) { if (err.kind === "network") continue; throw err; }
     if (res.status === "done") return res;
     if (res.status === "failed") throw new ApiError(0, "the voice report could not be handled", "failed");
+    onStatus(res.status);
   }
   throw new ApiError(0, `no reply in ${VOICE_WAIT_MS / 1000} s`, "timeout");
 }

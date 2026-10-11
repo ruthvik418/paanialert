@@ -1,9 +1,10 @@
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { Camera, CheckCircle, CircleNotch, Crosshair, Drop, Fire, FirstAidKit, ForkKnife, MapPin, Microphone, Minus, Palette, PaperPlaneRight, Phone, Plus, Thermometer, Wind } from "@phosphor-icons/react";
 import MapView from "./MapView.jsx";
-import { ApiError, newRequestId, sendAppReport, uploadAudio, uploadPhoto, waitForAppReport } from "./api.js";
+import { ApiError, clearPendingVoice, newRequestId, pendingVoice, savePendingVoice, sendAppReport, uploadAudio, uploadPhoto, waitForAppReport } from "./api.js";
 import { useLang } from "./i18n.js";
 import VoiceRecorder, { canRecord } from "./VoiceRecorder.jsx";
+import VoiceWait from "./VoiceWait.jsx";
 import WarningBanner, { rememberPin } from "./WarningBanner.jsx";
 import WarnMeToggle from "./WarnMeToggle.jsx";
 
@@ -85,7 +86,9 @@ export default function ReportPage() {
   const [voice, setVoice] = useState(null);         // {blob, url, seconds}
   const [recordable] = useState(canRecord);
   const [sending, setSending] = useState(false);
-  const [listening, setListening] = useState(false); // a recording was sent; waiting for the reply
+  // A recording was sent and the page is waiting for the reply: {requestId, phase, started, timedOut}.
+  // phase: "uploading" | "listening" (Transcribe) | "reading" (the model).
+  const [wait, setWait] = useState(null);
   const [sendError, setSendError] = useState("");
   const [result, setResult] = useState(null);       // {reply, saved, transcript?}
   const whatRef = useRef(null);
@@ -99,6 +102,14 @@ export default function ReportPage() {
   useEffect(() => { document.title = t("rpDocTitle"); }, [t]);
   // The service worker makes the page installable as an app and shows a page when offline.
   useEffect(() => { navigator.serviceWorker?.register("/sw.js", { scope: "/" }).catch(() => {}); }, []);
+  // A voice report still being handled when the page was closed: pick up where it left off.
+  useEffect(() => {
+    const pending = pendingVoice();
+    if (!pending) return;
+    if (pending.pin) setPin(pending.pin);
+    follow(pending.requestId, pending.started, pending.pin).catch(() => { setWait(null); setSendError(t("rpFailed")); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => () => { if (photo) URL.revokeObjectURL(photo.url); }, [photo]);
   useEffect(() => {
     if (!result) return;
@@ -165,21 +176,20 @@ export default function ReportPage() {
 
     setSending(true);
     setSendError("");
+    const started = Date.now();
+    if (voice) setWait({ requestId: null, phase: "uploading", started, timedOut: false });
     try {
       const photoKey = photo ? await uploadPhoto(photo.blob) : undefined;
       // A recording is uploaded once per draft; sending again reuses it, and the same request_id.
       if (voice && !voice.key) voice.key = await uploadAudio(voice.blob);
       const audioKey = voice?.key;
-      let res = await sendAppReport({ text: message, lat: pin.lat, lon: pin.lon, lang: replyLang, photoKey, audioKey, requestId: requestId.current });
-      if (res.request_id && res.status !== "done") {
-        setListening(true);
-        res = await waitForAppReport(res.request_id);
-      }
-      setResult(res);
+      const res = await sendAppReport({ text: message, lat: pin.lat, lon: pin.lon, lang: replyLang, photoKey, audioKey, requestId: requestId.current });
+      if (res.request_id && res.status !== "done") await follow(res.request_id, started);
+      else setResult(res);
     } catch (err) {
+      setWait(null);
       // The status and details are in the console (api.js); people get a plain message.
       if (err instanceof ApiError && err.status === 429) setSendError(t("rpLimit"));
-      else if (err instanceof ApiError && err.kind === "timeout" && voice) setSendError(t("rpVoiceSlow"));
       else if (err instanceof ApiError && err.kind === "timeout") setSendError(t("rpTimeout"));
       else if (err instanceof ApiError && err.kind === "network") setSendError(t("rpOffline"));
       else {
@@ -188,7 +198,24 @@ export default function ReportPage() {
       }
     } finally {
       setSending(false);
-      setListening(false);
+    }
+  }
+
+  // Poll a queued voice report (75 s at most). A timeout isn't an error: the worker still has it,
+  // the request is remembered in this browser, and "Check Again" (or reopening the page) polls again.
+  async function follow(id, started, at = pin) {
+    savePendingVoice({ requestId: id, started, pin: at });
+    setWait({ requestId: id, phase: "listening", started, timedOut: false });
+    try {
+      const res = await waitForAppReport(id, (status) =>
+        setWait((w) => w && { ...w, phase: status === "reading" ? "reading" : "listening" }));
+      clearPendingVoice();
+      setWait(null);
+      setResult(res);
+    } catch (err) {
+      if (err instanceof ApiError && err.kind === "timeout") { setWait((w) => w && { ...w, timedOut: true }); return; }
+      clearPendingVoice();
+      throw err;
     }
   }
 
@@ -223,6 +250,8 @@ export default function ReportPage() {
       <main id="report-main" className="rs-main">
         {result ? (
           <Confirmation result={result} replyLang={replyLang} pin={pin} resultRef={resultRef} onAnother={another} t={t} />
+        ) : wait ? (
+          <VoiceWait wait={wait} t={t} onCheckAgain={() => follow(wait.requestId, wait.started).catch(() => { setWait(null); setSendError(t("rpFailed")); })} />
         ) : (
           <>
             <h1>{t("rpTitle")}</h1>
@@ -329,9 +358,8 @@ export default function ReportPage() {
                 {sendError && <p className="rs-error rs-error-box" role="alert">{sendError}</p>}
                 <button type="submit" className="rs-button rs-button-primary" disabled={sending}>
                   {sending ? <CircleNotch className="rs-spin" size={22} weight="bold" aria-hidden="true" /> : <PaperPlaneRight size={22} weight="fill" aria-hidden="true" />}
-                  {listening ? t("rpListening") : sending ? t("rpSending") : t("rpSend")}
+                  {sending ? t("rpSending") : t("rpSend")}
                 </button>
-                {listening && <p className="rs-hint" role="status">{t("rpListeningHint")}</p>}
                 <p className="rs-hint">{t("rpPrivacy")}</p>
               </div>
             </form>

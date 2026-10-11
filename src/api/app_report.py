@@ -8,7 +8,7 @@ Public routes (no dashboard key), throttled in template.yaml:
                           -> 200 {reply, report_id, saved}
                           -> 202 {request_id, status: "processing"} when audio_key is sent
     GET  /app/report/{request_id}?device_id=...
-                          -> {status: processing|done|failed, reply?, transcript?, saved?, report_id?}
+                          -> {status: processing|reading|done|failed, reply?, transcript?, saved?, report_id?}
     GET  /app/push-key    -> {public_key}   (VAPID, for "Warn me about my area")
     POST /app/subscribe   {device_id, subscription, lat, lon, lang} -> {subscribed, geohash6}
     POST /app/unsubscribe {device_id, endpoint} -> {subscribed: false}

@@ -203,6 +203,8 @@ def _handle_message(msg: dict, text: str, ph: str, state: dict, turns: list, lan
         if result:
             heard, code = result
             msg["Transcript"] = heard   # handle_app_request returns it to the web page
+            if msg.get("RequestId"):     # the web page ticks off "Listening" and shows "Reading your report"
+                db.finish_app_request(msg["RequestId"], "reading")
             msg_lang = "hi" if code.startswith("hi") else "en"
             # Someone who speaks Hindi and hasn't picked a language yet is answered in Hindi.
             if msg_lang == "hi" and not app and db.get_language(ph) is None:
