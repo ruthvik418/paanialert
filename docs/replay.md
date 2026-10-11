@@ -15,10 +15,10 @@ The script steps through 15–29 Dec in 1-hour steps and calls `cluster.rule.eva
 | What | Assumed | Why |
 |---|---|---|
 | Place | Homes within 400 m of 22.733, 75.858 (Bhagirathpura) | One colony on one supply line |
-| Households on the contaminated supply | 1,000 | Not published. ~1,400 people fell ill (figure still to be confirmed, `docs/sources.md`) |
+| Households on the contaminated supply | 1,000 | Not published. About 1,400 people fell ill (`docs/sources.md`) |
 | Adoption | 2%, 5%, 10% of those households report (20, 50, 100 reports) | Unknown, so three levels instead of one number |
 | Reports | One per reporting household, when it first notices the problem, 07:00–22:00 IST | Repeat reports from the same phone don't add phones to the rule anyway |
-| When households first report | 10% between ~15 and 24 Dec (foul, discoloured water); 35% on 25–26 Dec (bitter taste, strong odour); 55% on 27–29 Dec | Shaped on the timeline: a few early complaints, many from 25 Dec, illness from 27 Dec |
+| When households first report | 10% between ~15 and 24 Dec (foul-smelling water); 35% on 25–26 Dec (unusual smell, bitter taste); 55% on 27–29 Dec | Shaped on the timeline: a few early complaints, many from 25 Dec, illness from 27 Dec |
 | What they report | Before 25 Dec: sewage or odd smell, yellow/brown/murky water. From 25 Dec: sewage smell and bad taste. From 27 Dec: 60% also report someone sick | Same timeline |
 | "First illness" | 27 Dec 00:00 IST | The source gives the day, not the hour |
 | Randomness | Seed 1 for the data file and the first columns; seeds 1–100 for the spread | Reproducible; shows how much one run's luck matters |
