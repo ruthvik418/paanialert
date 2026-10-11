@@ -3,8 +3,5 @@
 strands-agents[openai]   # OpenAIModel for the bedrock-mantle endpoint
 twilio
 requests
-# Fallback providers if Bedrock is unavailable (keys in SSM; see docs/ai-providers.md)
-anthropic
-google-genai
 # Web push for the report app's "Warn me about my area" (VAPID keys in SSM; see src/common/push.py)
 pywebpush
