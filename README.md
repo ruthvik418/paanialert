@@ -2,7 +2,7 @@
 
 Early warning for unsafe drinking water, from the complaints that come before the hospital cases.
 
-[Demo video](VIDEO_URL) · [Try it](https://main.dy95ki8l9ef8x.amplifyapp.com/report) · [Officials' dashboard](https://main.dy95ki8l9ef8x.amplifyapp.com) · [Public map](https://main.dy95ki8l9ef8x.amplifyapp.com/public) · [Android app](https://github.com/ruthvik418/paanialert/releases/latest/download/PaaniAlert.apk) · [Blog]([BLOG_URL](https://builder.aws.com/content/3KVDhzdtnzTIOfokqoHnDwflBgn/the-complaints-nobody-connected)) · [Chat on WhatsApp](https://wa.me/14155238886?text=join%20either-tried)
+[Demo video](VIDEO_URL) · [Try it](https://main.dy95ki8l9ef8x.amplifyapp.com/report) · [Officials' dashboard](https://main.dy95ki8l9ef8x.amplifyapp.com) · [Public map](https://main.dy95ki8l9ef8x.amplifyapp.com/public) · [Android app](https://github.com/ruthvik418/paanialert/releases/latest/download/PaaniAlert.apk) · [Blog](https://builder.aws.com/content/3KVDhzdtnzTIOfokqoHnDwflBgn/the-complaints-nobody-connected) · [Chat on WhatsApp](https://wa.me/14155238886?text=join%20either-tried)
 
 Built by Team Crystal Red for the WeMakeDevs × AWS Environmental Hacks, Oct 8–11, 2026 (Heat and Water track).
 
