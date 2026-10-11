@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Clock, Prohibit, Warning } from "@phosphor-icons/react";
 import { getPublicAdvisories } from "./api.js";
 import { useLang } from "./i18n.js";
 
@@ -45,7 +46,7 @@ function useQuietPosition() {
 }
 
 /**
- * A red banner when the place this device is reporting from (its pin, its location if already allowed,
+ * A full-width red banner when the place this device is reporting from (its pin, its location if already allowed,
  * or the pin it used last time) is inside an active official warning. Checks on open and every 60 s.
  */
 export default function WarningBanner({ pin }) {
@@ -69,11 +70,18 @@ export default function WarningBanner({ pin }) {
   const a = inside.find((x) => x.kind === "do_not_use") || inside[0];
   const strict = a.kind === "do_not_use";
   const since = new Date(a.created_at).toLocaleString(lang === "hi" ? "hi-IN" : "en-IN", { dateStyle: "medium", timeStyle: "short" });
+  const Icon = strict ? Prohibit : Warning;
   return (
-    <section className={`area-warning ${a.kind}`} role="status" aria-live="polite">
-      <p className="area-warning-title"><span aria-hidden="true">{strict ? "🚫" : "⚠️"}</span> {t(strict ? "warnDoNotUse" : "warnBoil")}</p>
-      <p>{t(strict ? "warnDoNotUseHow" : "warnBoilHow")}</p>
-      <p className="area-warning-meta">{t("warnIssued", { time: since })}</p>
+    <section className={`rs-banner ${a.kind}`} role="status" aria-live="polite" aria-labelledby="area-warning-title">
+      <div className="rs-banner-inner">
+        <Icon className="rs-banner-icon" size={36} weight="fill" aria-hidden="true" />
+        <div className="rs-banner-text">
+          <p className="rs-banner-kind">{t(strict ? "warnDoNotUse" : "warnBoil")}</p>
+          <p id="area-warning-title" className="rs-banner-action">{t(strict ? "warnDoNotUseAction" : "warnBoilAction")}</p>
+          <p>{t(strict ? "warnDoNotUseHow" : "warnBoilHow")}</p>
+          <p className="rs-banner-meta"><Clock size={18} weight="bold" aria-hidden="true" /><span><time dateTime={a.created_at}>{t("warnIssuedAt", { time: since })}</time> {t("warnStays")}</span></p>
+        </div>
+      </div>
     </section>
   );
 }

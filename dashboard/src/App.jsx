@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { ArrowClockwise, CheckCircle, Eye, Info, PaperPlaneRight, Prohibit, Thermometer, Warning, WarningCircle, WarningOctagon } from "@phosphor-icons/react";
 import MapView, { PLACES } from "./MapView.jsx";
 import { Unauthorised, getClusters, getPublicAdvisories, getPublicClusters, saveKey, savedKey } from "./api.js";
 import { ago, levelLabel } from "./format.js";
 import { LANGS, useLang } from "./i18n.js";
 import OperationsDashboard from "./OperationsDashboard.jsx";
-import ReportPage from "./ReportPage.jsx";
+import ReportPage, { Brand } from "./ReportPage.jsx";
+import WarningBanner from "./WarningBanner.jsx";
 
 const POLL_MS = 30000;
 
@@ -20,17 +22,6 @@ function LanguageSwitch() {
     <div className="places" role="group" aria-label={t("language")}>
       {Object.entries(LANGS).map(([id, label]) => (
         <button key={id} type="button" lang={id} aria-pressed={lang === id} onClick={() => setLang(id)}>{label}</button>
-      ))}
-    </div>
-  );
-}
-
-function PlaceSwitch({ place, setPlace }) {
-  const { t } = useLang();
-  return (
-    <div className="places" role="group" aria-label={t("jumpTo")}>
-      {Object.keys(PLACES).map((id) => (
-        <button key={id} type="button" aria-pressed={place === id} onClick={() => setPlace(id)}>{t(`place_${id}`)}</button>
       ))}
     </div>
   );
@@ -71,7 +62,7 @@ function Passcode({ onKey }) {
         <h1>{t("pcTitle")}</h1>
         <p className="muted">{t("pcHelp")}</p>
         <label htmlFor="key">{t("pcLabel")}</label>
-        <input id="key" type="password" autoComplete="off" value={value} onChange={(e) => setValue(e.target.value)} required />
+        <input id="key" name="dashboard-key" type="password" autoComplete="off" spellCheck={false} value={value} onChange={(e) => setValue(e.target.value)} required />
         {error && <p className="error" role="alert">{t(error)}</p>}
         <button type="submit" disabled={busy || !value.trim()}>{busy ? t("pcChecking") : t("pcOpen")}</button>
         <a className="muted small" href="/public">{t("pcPublic")}</a>
@@ -80,26 +71,28 @@ function Passcode({ onKey }) {
   );
 }
 
-function Empty({ text }) { return <li className="empty">{text}</li>; }
-
 /* Public */
 
 function PublicPage() {
-  const { t } = useLang();
+  const { lang, setLang, t } = useLang();
   const [clusters, setClusters] = useState([]);
-  const [loaded, setLoaded] = useState(false);
-  const [place, setPlace] = useState("all");
   const [advisories, setAdvisories] = useState([]);
+  const [state, setState] = useState("loading");   // loading | ready | error (only while nothing has loaded)
+  const [place, setPlace] = useState("all");
+
+  const load = useCallback(() => Promise.all([getPublicClusters(), getPublicAdvisories()])
+    .then(([c, a]) => { setClusters(c); setAdvisories(a); setState("ready"); })
+    // A failed refresh keeps what's on screen; with nothing loaded yet it's an error, never "no warnings".
+    .catch(() => setState((now) => (now === "ready" ? now : "error"))), []);
 
   useEffect(() => {
-    const load = () => {
-      getPublicAdvisories().then(setAdvisories).catch(() => {});
-      return getPublicClusters().then((c) => { setClusters(c); setLoaded(true); }).catch(() => setLoaded(true));
-    };
+    document.title = `${t("pubTitle")} · PaaniAlert`;
+  }, [t]);
+  useEffect(() => {
     load();
     const timer = setInterval(load, POLL_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [load]);
 
   function status(c) {
     if (c.status === "acknowledged") return t("pubAck");
@@ -107,47 +100,89 @@ function PublicPage() {
     return t("pubWatching");
   }
 
+  const nothing = state === "ready" && !clusters.length && !advisories.length;
   return (
-    <div className="shell public">
-      <header className="topbar">
-        <div className="brand"><span className="drop" aria-hidden="true" />PaaniAlert <span className="muted">{t("public")}</span></div>
-        <PlaceSwitch place={place} setPlace={setPlace} />
-        <div className="topbar-right"><a className="report-cta" href="/report">{t("pubReport")}</a><LanguageSwitch /></div>
+    <div className="rs-page rs-public">
+      <a className="rs-skip" href="#public-main">{t("pubTitle")}</a>
+      <header className="rs-top">
+        <Brand href="/public" />
+        <div className="rs-top-end">
+          <a className="rs-button rs-button-primary rs-top-cta" href="/report">{t("pubReport")}</a>
+          <div className="rs-langs" role="group" aria-label={t("language")}>
+            {Object.entries(LANGS).map(([id, label]) => (
+              <button key={id} type="button" lang={id} aria-pressed={lang === id} onClick={() => setLang(id)}>{label}</button>
+            ))}
+          </div>
+        </div>
       </header>
-      <div className="body">
-        <MapView clusters={clusters} circles={advisories.map((a, i) => ({ id: i, ...a }))} place={place} label={t("mapLabel")} />
-        <aside className="panel">
-          <h1 className="public-title">{t("pubTitle")}</h1>
-          <p className="muted small">{t("pubHelp")}</p>
+      <WarningBanner pin={null} />
+      <div className="rs-public-body">
+        <div className="rs-public-map">
+          <MapView theme="light" clusters={clusters} circles={advisories.map((a, i) => ({ id: i, ...a }))} place={place} label={t("mapLabel")}
+            failedText={[t("pubMapFailed"), t("pubMapFailedHelp")]} />
+          <div className="rs-places" role="group" aria-label={t("jumpTo")}>
+            {Object.keys(PLACES).map((id) => (
+              <button key={id} type="button" aria-pressed={place === id} onClick={() => setPlace(id)}>{t(`place_${id}`)}</button>
+            ))}
+          </div>
+        </div>
+        <main id="public-main" className="rs-public-panel" tabIndex={-1}>
+          <h1>{t("pubTitle")}</h1>
+          <p className="rs-lead">{t("pubHelp")}</p>
+
+          {state === "loading" && <div className="rs-skeleton" role="status" aria-label={t("pubLoading")}><span /><span /><span /></div>}
+          {state === "error" && (
+            <div className="rs-callout rs-callout-error" role="alert">
+              <WarningCircle size={26} weight="fill" aria-hidden="true" />
+              <div><p>{t("pubError")}</p><button type="button" className="rs-button rs-button-secondary" onClick={() => { setState("loading"); load(); }}><ArrowClockwise size={20} weight="bold" aria-hidden="true" />{t("pubRetry")}</button></div>
+            </div>
+          )}
+          {nothing && <div className="rs-callout rs-callout-ok" role="status"><CheckCircle size={26} weight="fill" aria-hidden="true" /><p>{t("pubEmpty")}</p></div>}
+
           {advisories.length > 0 && <section aria-labelledby="official-warnings">
-            <h2 id="official-warnings" className="public-subtitle">{t("pubWarnings")}</h2>
-            <ul className="list">
-              {advisories.map((a, i) => (
-                <li key={i} className={`card warning ${a.kind}`}>
-                  <strong>{t(a.kind === "do_not_use" ? "warnDoNotUse" : "warnBoil")}</strong>
-                  <p className="small">{t(a.kind === "do_not_use" ? "warnDoNotUseHow" : "warnBoilHow")}</p>
-                  <p className="muted small">{t("pubWarnArea", { km: a.radius_m / 1000, ago: ago(a.created_at, t) })}</p>
+            <h2 id="official-warnings" className="rs-section-title">{t("pubWarnings")}</h2>
+            <ul className="rs-list">
+              {advisories.map((a, i) => {
+                const strict = a.kind === "do_not_use";
+                const Icon = strict ? Prohibit : Warning;
+                return (
+                  <li key={i} className={`rs-item rs-item-warning ${a.kind}`}>
+                    <p className="rs-item-head"><Icon size={24} weight="fill" aria-hidden="true" /><strong>{t(strict ? "warnDoNotUseAction" : "warnBoilAction")}</strong></p>
+                    <p>{t(strict ? "warnDoNotUseHow" : "warnBoilHow")}</p>
+                    <p className="rs-meta">{t("pubWarnArea", { km: a.radius_m / 1000, ago: ago(a.created_at, t) })}</p>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>}
+
+          {clusters.length > 0 && <section aria-labelledby="resident-reports">
+            <h2 id="resident-reports" className="rs-section-title">{t("pubClusters")}</h2>
+            <ul className="rs-list">
+              {clusters.map((c, i) => (
+                <li key={i} className={`rs-item rs-item-cluster ${c.level}`}>
+                  <div className="rs-item-row"><LevelBadge level={c.level} t={t} /><span className="rs-meta">{ago(c.first_seen, t)}</span></div>
+                  <p className="rs-facts">
+                    <span>{t("nReports", { n: c.report_count })}</span>
+                    <span className={c.sick_households ? "rs-sick" : ""}>{c.sick_households ? <><Thermometer size={18} weight="bold" aria-hidden="true" />{t("nSickHouseholds", { n: c.sick_households })}</> : t("sickHouseholdsNone")}</span>
+                  </p>
+                  <p>{status(c)}</p>
                 </li>
               ))}
             </ul>
           </section>}
-          <ul className="list">
-            {loaded && clusters.length === 0 && <Empty text={t("pubEmpty")} />}
-            {clusters.map((c, i) => (
-              <li key={i} className={`card cluster ${c.level}`}>
-                <div className="row"><span className={`pill ${c.level}`}>{levelLabel(c.level, t)}</span><span className="muted small">{ago(c.first_seen, t)}</span></div>
-                <div className="facts">
-                  <span>{t("nReports", { n: c.report_count })}</span>
-                  <span className={c.sick_households ? "sick" : ""}>{t("nSickHouseholds", { n: c.sick_households })}</span>
-                </div>
-                <p className="small">{status(c)}</p>
-              </li>
-            ))}
-          </ul>
-          <a className="report-cta wide" href="/report">{t("pubReport")}</a>
-          <p className="muted small">{t("pubFooter")}</p>
-        </aside>
+
+          <div className="rs-public-cta">
+            <a className="rs-button rs-button-primary" href="/report"><PaperPlaneRight size={22} weight="fill" aria-hidden="true" />{t("pubReport")}</a>
+            <p className="rs-hint">{t("pubFooter")}</p>
+          </div>
+        </main>
       </div>
     </div>
   );
+}
+
+function LevelBadge({ level, t }) {
+  const Icon = level === "alert" ? WarningOctagon : level === "watch" ? Eye : Info;
+  return <span className={`rs-badge ${level}`}><Icon size={18} weight="fill" aria-hidden="true" />{levelLabel(level, t)}</span>;
 }
