@@ -144,8 +144,8 @@ Then paste the stack's `WebhookUrl` output into the Twilio WhatsApp sandbox ("Wh
 Test data without real phones (made-up phone hashes, so nobody is messaged for them):
 
 ```bash
-python scripts/fake_reports.py --near 22.7186,75.8553 --phones 6 --sick 2           # Rajwada: an Alert
-python scripts/fake_reports.py --near 22.7533,75.8937 --phones 3 --check            # Vijay Nagar: a Watch
+python scripts/fake_reports.py --near 22.7186,75.8553 --phones 6 --sick 2 --area "Rajwada, Indore"           # an Alert
+python scripts/fake_reports.py --near 22.7533,75.8937 --phones 3 --area "Vijay Nagar, Indore" --check       # a Watch
 python scripts/fake_reports.py --clean                                              # remove all test data
 ```
 

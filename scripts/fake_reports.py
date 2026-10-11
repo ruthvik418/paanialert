@@ -1,6 +1,6 @@
 """Insert test reports near a point, so you can test clusters without five real phones. Owner: A.
 
-    python scripts/fake_reports.py --near 22.7196,75.8577 --phones 5 --sick 1 --check
+    python scripts/fake_reports.py --near 22.7196,75.8577 --phones 5 --sick 1 --area "Rajwada, Indore" --check
     python scripts/fake_reports.py --clean          # delete every fake report and the clusters they made
 
 Fake reports have ids starting with "fake-" (so do loaded replay reports, "fake-replay-…",
@@ -66,7 +66,7 @@ def jitter(lat: float, lon: float, metres: float) -> tuple[float, float]:
             lon + dist * math.sin(angle) / (111_320 * math.cos(math.radians(lat))))
 
 
-def add(session, lat: float, lon: float, phones: int, sick: int) -> None:
+def add(session, lat: float, lon: float, phones: int, sick: int, area: str | None = None) -> None:
     table = session.resource("dynamodb").Table(resource_id(session, "ReportsTable"))
     for i in range(phones):
         rlat, rlon = jitter(lat, lon, 300)
@@ -87,6 +87,7 @@ def add(session, lat: float, lon: float, phones: int, sick: int) -> None:
             "lang": lang,
             "source": "pipe",
             "landmark": "TEST REPORT",
+            **({"area": area} if area else {}),
             "text": message(lang, smell, colour, days, i < sick),
             "profile_name": random.choice(NAMES),
             "phone_masked": f"+91 9{random.randint(0, 9)}•••••{random.randint(0, 999):03d}",
@@ -128,6 +129,7 @@ def main() -> None:
     parser.add_argument("--near", help="lat,lon")
     parser.add_argument("--phones", type=int, default=5)
     parser.add_argument("--sick", type=int, default=0)
+    parser.add_argument("--area", help='place name shown on the dashboard, e.g. "Rajwada, Indore"')
     parser.add_argument("--check", action="store_true", help="run the cluster check now")
     parser.add_argument("--clean", action="store_true")
     args = parser.parse_args()
@@ -137,7 +139,7 @@ def main() -> None:
         clean(session)
     if args.near:
         lat, lon = (float(x) for x in args.near.split(","))
-        add(session, lat, lon, args.phones, args.sick)
+        add(session, lat, lon, args.phones, args.sick, args.area)
     if args.check:
         run_check(session)
 
