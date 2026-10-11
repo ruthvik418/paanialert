@@ -39,3 +39,10 @@ signing-key-info.txt
 *.aab
 PaaniAlert*.zip
 android-app/
+
+# Local AI-assistant files (kept on each machine, not in the repo)
+.agents/
+.claude/
+CLAUDE.md
+AGENTS.md
+skills-lock.json
