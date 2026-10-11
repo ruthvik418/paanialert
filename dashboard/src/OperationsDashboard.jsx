@@ -124,6 +124,7 @@ export default function OperationsDashboard({ dashboardKey, onSignOut }) {
     return report?.area || (Number.isFinite(cluster.centre_lat) && Number.isFinite(cluster.centre_lon)
       ? `${cluster.centre_lat.toFixed(3)}, ${cluster.centre_lon.toFixed(3)}` : "Location unavailable");
   }, [reports]);
+  const validPoint = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
   const mostRecentClusterTime = useCallback((cluster) => {
     const reportIds = new Set(cluster.report_ids || []);
     return reports.find((report) => reportIds.has(report.report_id))?.created_at || cluster.status_at || cluster.first_seen || "";
@@ -141,11 +142,23 @@ export default function OperationsDashboard({ dashboardKey, onSignOut }) {
     `${r.area || ""} ${r.landmark || ""} ${r.report_id} ${describeReport(r, t)}`.toLowerCase().includes(needle)), [reports, needle, t]);
   const activeCluster = clusters.find((c) => c.cluster_id === (confirm?.cluster?.cluster_id || selected?.id)) || null;
   const title = PAGE[page] || PAGE.overview;
-  const onShowCluster = (cluster) => {
-    setSelected({ type: "cluster", id: cluster.cluster_id });
-    if (Number.isFinite(cluster.centre_lat) && Number.isFinite(cluster.centre_lon)) {
+  const focusCluster = (cluster) => {
+    if (validPoint(cluster.centre_lat, cluster.centre_lon)) {
       setFocus({ key: `${cluster.cluster_id}-${Date.now()}`, lat: cluster.centre_lat, lon: cluster.centre_lon, title: `${levelLabel(cluster.level, t)} · ${statusLabel(cluster.status, t)}`, lines: [locationOf(cluster), `${cluster.report_count} reports`, `${cluster.sick_households} sick households`] });
     }
+  };
+  const onShowCluster = (cluster) => {
+    setSelected({ type: "cluster", id: cluster.cluster_id });
+    focusCluster(cluster);
+  };
+  const focusReport = (report) => {
+    if (validPoint(report.lat, report.lon)) {
+      setFocus({ key: `${report.report_id}-${Date.now()}`, lat: report.lat, lon: report.lon, title: describeReport(report, t), lines: [report.area || report.landmark || "Location unavailable", ago(report.created_at, t)] });
+    }
+  };
+  const onShowReport = (report) => {
+    setSelected({ type: "report", id: report.report_id });
+    focusReport(report);
   };
 
   async function saveStatus() {
@@ -211,7 +224,6 @@ export default function OperationsDashboard({ dashboardKey, onSignOut }) {
     const cluster = clusters.find((item) => item.cluster_id === event.cluster_id);
     return `${event.kind || ""} ${event.cluster_id || ""} ${event.error || ""} ${cluster ? locationOf(cluster) : ""}`.toLowerCase().includes(needle);
   });
-  const validPoint = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
   const allLocated = clusters.some((c) => validPoint(c.centre_lat, c.centre_lon)) || reports.some((r) => validPoint(r.lat, r.lon));
 
   return <div className="shell">
@@ -250,7 +262,7 @@ export default function OperationsDashboard({ dashboardKey, onSignOut }) {
         <section className="map-section" aria-label="Geographic incident overview">
           <div className="map-column">
             <SectionHeading heading="Incident map" subheading="Reported locations and active clusters"><span className="map-legend" aria-label="Map key"><span><i className="legend-dot alert-dot" />Alert</span><span><i className="legend-dot watch-dot" />Watch</span><span><i className="legend-dot fixed-dot" />Fixed</span><span><i className="legend-dot false-dot" />False alarm</span><span><i className="legend-dot report-dot" />Report</span><span><i className="legend-ring" />Warning</span></span></SectionHeading>
-            <div className="map-frame"><MapView reports={shownReports} clusters={shownClusters} circles={mapCircles} fitCircle={fitCircle} place={place} focus={focus} label="Map of reports and clusters" onSelectCluster={(id) => { const c = clusters.find((item) => item.cluster_id === id); if (c) { setPage("incidents"); onShowCluster(c); } }} onSelectReport={(id) => { const r = reports.find((item) => item.report_id === id); if (r) { setPage("reports"); setSelected({ type: "report", id }); if (Number.isFinite(r.lat) && Number.isFinite(r.lon)) setFocus({ key: `${id}-${Date.now()}`, lat: r.lat, lon: r.lon, title: describeReport(r, t), lines: [r.area || "Location unavailable", ago(r.created_at, (x) => x)] }); } }} />{!allLocated && <div className="map-empty" role="status"><strong>No located reports yet</strong><span>Incidents appear here when location data is available.</span></div>}</div>
+            <div className="map-frame"><MapView reports={shownReports} clusters={shownClusters} circles={mapCircles} fitCircle={fitCircle} place={place} focus={focus} label="Map of reports and clusters" onSelectCluster={(id) => { const c = clusters.find((item) => item.cluster_id === id); if (c) { setPage("incidents"); onShowCluster(c); } }} onSelectReport={(id) => { const r = reports.find((item) => item.report_id === id); if (r) { setPage("reports"); onShowReport(r); } }} />{!allLocated && <div className="map-empty" role="status"><strong>No located reports yet</strong><span>Incidents appear here when location data is available.</span></div>}</div>
           </div>
           <aside className="queue-panel" aria-label={page === "reports" ? "Recent reports" : "Priority incidents"}>
             <SectionHeading heading={page === "reports" ? "Recent reports" : page === "warnings" ? "Warnings" : page === "notifications" ? "Notification events" : page === "activity" ? "Recorded activity" : "Priority incidents"} subheading={page === "warnings" ? `${activeAdvisories.length} active` : `${page === "reports" ? shownReports.length : page === "notifications" ? notifications.length : page === "activity" ? activity.length : shownClusters.length} records`} />
@@ -258,15 +270,14 @@ export default function OperationsDashboard({ dashboardKey, onSignOut }) {
             {!["reports", "activity", "notifications", "warnings"].includes(page) && <div className="filter-row"><label><span className="visually-hidden">Status filter</span><select name="status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="active">Active status</option><option value="all">All statuses</option><option value="open">Open</option><option value="acknowledged">Acknowledged</option><option value="fixed">Fixed</option><option value="false_alarm">False alarm</option></select></label><label><span className="visually-hidden">Severity filter</span><select name="level-filter" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}><option value="all">All levels</option><option value="alert">Alert</option><option value="watch">Watch</option><option value="none">None</option></select></label></div>}
             <div className="queue-scroll" aria-live="polite">
               {loading && <LoadingState />}
-              {page === "reports" ? <ul className="list">{!loading && !shownReports.length && <Empty text={error ? "Reports are unavailable. Try refreshing." : "No reports match this search."} />}{shownReports.map((r) => <li key={r.report_id} className={`queue-item ${selected?.id === r.report_id ? "selected" : ""}`}><button type="button" className="queue-select" aria-expanded={selected?.id === r.report_id} onClick={() => setSelected(selected?.id === r.report_id ? null : { type: "report", id: r.report_id })}><span className="item-title">{describeReport(r, t)}{r.channel === "app" && <AppTag />}{r.input_type === "voice" && <VoiceTag />}</span><span>{r.area || "Location unavailable"}</span><span>{sickLabel(r, t)} · {ago(r.created_at, t)}</span></button>{selected?.id === r.report_id && <ReportDetail report={r} t={t} dashboardKey={dashboardKey} onStatus={(status, note) => saveReportStatus(r, status, note)} onWarn={Number.isFinite(r.lat) && Number.isFinite(r.lon) ? () => openWarning({ lat: r.lat, lon: r.lon, label: r.area || "this report", report_id: r.report_id }) : null} />}</li>)}</ul>
+              {page === "reports" ? <ul className="list">{!loading && !shownReports.length && <Empty text={error ? "Reports are unavailable. Try refreshing." : "No reports match this search."} />}{shownReports.map((r) => <li key={r.report_id} className={`queue-item ${selected?.id === r.report_id ? "selected" : ""}`}><button type="button" className="queue-select" aria-expanded={selected?.id === r.report_id} onClick={() => { if (selected?.type === "report" && selected.id === r.report_id) { setSelected(null); focusReport(r); } else onShowReport(r); }}><span className="item-title">{describeReport(r, t)}{r.channel === "app" && <AppTag />}{r.input_type === "voice" && <VoiceTag />}</span><span>{r.area || "Location unavailable"}</span><span>{sickLabel(r, t)} · {ago(r.created_at, t)}</span></button>{selected?.id === r.report_id && <ReportDetail report={r} t={t} dashboardKey={dashboardKey} onStatus={(status, note) => saveReportStatus(r, status, note)} onWarn={Number.isFinite(r.lat) && Number.isFinite(r.lon) ? () => openWarning({ lat: r.lat, lon: r.lon, label: r.area || "this report", report_id: r.report_id }) : null} />}</li>)}</ul>
                 : page === "warnings" ? <WarningList advisories={advisories} liftingId={liftingId} onLift={lift} onShow={(a) => setFitCircle({ id: a.advisory_id, lat: a.lat, lon: a.lon, radius_m: a.radius_m })} />
                 : page === "activity" || page === "notifications" ? <>{activityError && <p className="inline-warning" role="status">Activity history is temporarily unavailable. Refresh to try again.</p>}<ActivityList rows={activityRows} clusters={clusters} locationOf={locationOf} onSelect={(c) => { setPage("incidents"); onShowCluster(c); }} /></>
-                  : <ul className="list">{!loading && !shownClusters.length && <Empty text={error ? "Incidents could not be loaded. Try refreshing." : query ? "No incidents match these filters." : "No active incidents in this service area."} />}{shownClusters.map((c) => <li key={c.cluster_id} className={`queue-item incident-item ${selected?.id === c.cluster_id ? "selected" : ""}`}><button type="button" className="queue-select" aria-expanded={selected?.id === c.cluster_id} onClick={() => setSelected(selected?.id === c.cluster_id ? null : { type: "cluster", id: c.cluster_id })}><span className="item-top"><LevelBadge level={c.level}>{levelLabel(c.level, t)}</LevelBadge><StatusBadge status={c.status}>{statusLabel(c.status, t)}</StatusBadge></span><span className="item-title">{locationOf(c)}</span><span>{c.report_count} reports · {c.distinct_phones} reporters{c.sick_households ? ` · ${c.sick_households} sick households` : ""}</span><span>First report {ago(c.first_seen, t)}</span></button>{selected?.id === c.cluster_id && <IncidentDetail cluster={c} location={locationOf(c)} reports={reports} activity={activity} t={t} onAction={(action) => setConfirm({ ...action, cluster: c })} onWarn={() => openWarning({ lat: c.centre_lat, lon: c.centre_lon, label: locationOf(c), cluster_id: c.cluster_id })} />}</li>)}</ul>}
+                  : <ul className="list">{!loading && !shownClusters.length && <Empty text={error ? "Incidents could not be loaded. Try refreshing." : query ? "No incidents match these filters." : "No active incidents in this service area."} />}{shownClusters.map((c) => <li key={c.cluster_id} className={`queue-item incident-item ${selected?.id === c.cluster_id ? "selected" : ""}`}><button type="button" className="queue-select" aria-expanded={selected?.id === c.cluster_id} onClick={() => { if (selected?.type === "cluster" && selected.id === c.cluster_id) { setSelected(null); focusCluster(c); } else onShowCluster(c); }}><span className="item-top"><LevelBadge level={c.level}>{levelLabel(c.level, t)}</LevelBadge><StatusBadge status={c.status}>{statusLabel(c.status, t)}</StatusBadge></span><span className="item-title">{locationOf(c)}</span><span>{c.report_count} reports · {c.distinct_phones} reporters{c.sick_households ? ` · ${c.sick_households} sick households` : ""}</span><span>First report {ago(c.first_seen, t)}</span></button>{selected?.id === c.cluster_id && <IncidentDetail cluster={c} location={locationOf(c)} reports={reports} activity={activity} t={t} onAction={(action) => setConfirm({ ...action, cluster: c })} onWarn={() => openWarning({ lat: c.centre_lat, lon: c.centre_lon, label: locationOf(c), cluster_id: c.cluster_id })} />}</li>)}</ul>}
             </div>
           </aside>
         </section>
 
-        <section className="activity-strip"><SectionHeading heading="Recent activity" subheading="Latest recorded workflow events"><button type="button" className="text-action" onClick={() => setPage("activity")}>View activity log</button></SectionHeading><ActivityList compact rows={activity.slice(0, 3)} clusters={clusters} locationOf={locationOf} onSelect={(c) => { setPage("incidents"); onShowCluster(c); }} /></section>
         <p className="privacy-note">Reporter contact details are masked. Delivery states reflect events recorded by the system.</p>
       </div>
     </main>
@@ -390,11 +401,11 @@ function IncidentDetail({ cluster, location, reports, activity, t, onAction, onW
   return <div className="incident-detail"><dl className="detail"><dt>Incident ID</dt><dd>{cluster.cluster_id}</dd><dt>Severity</dt><dd><LevelBadge level={cluster.level}>{levelLabel(cluster.level, t)}</LevelBadge></dd><dt>Current status</dt><dd><StatusBadge status={cluster.status}>{statusLabel(cluster.status, t)}</StatusBadge></dd><dt>Location</dt><dd>{location}</dd><dt>Reports</dt><dd>{cluster.report_count} reports from {cluster.distinct_phones} distinct reporters</dd><dt>Sick households</dt><dd>{cluster.sick_households}</dd><dt>First reported</dt><dd>{cluster.first_seen ? new Date(cluster.first_seen).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Unavailable"}</dd><dt>Most recent report</dt><dd>{latest?.created_at ? new Date(latest.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Unavailable in loaded reports"}</dd><dt>Reported evidence</dt><dd>{evidence.length ? [...new Set(evidence.map((report) => describeReport(report, t)).filter((text) => text !== t("detailsUnclear")))].join("; ") || t("detailsUnclear") : "Evidence not available in the loaded report window"}</dd>{symptoms.length > 0 && <><dt>Symptoms</dt><dd>{symptoms.map((symptom) => t(`symptom_${symptom}`)).join(", ")}</dd></>}<dt>Alert sent</dt><dd>{cluster.alert_at ? new Date(cluster.alert_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "No alert event recorded"}</dd><dt>Escalated</dt><dd>{cluster.escalated_at ? new Date(cluster.escalated_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "No escalation event recorded"}</dd>{events.length > 0 && <><dt>Latest notification</dt><dd>{events.map((event) => `${event.kind} · ${recipientLabel(event)} · ${new Date(event.at).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}`).join("; ")}</dd></>}</dl><p className="next-action"><strong>Next action</strong><span>{cluster.status === "open" ? "Acknowledge to record that an official has taken ownership." : cluster.status === "acknowledged" ? "Continue investigation, then record the authoritative outcome." : "This incident is closed. New reports may reopen it."}</span></p><div className="actions">{cluster.status === "open" && <button type="button" className="secondary-action" onClick={() => onAction({ status: "acknowledged" })}>Acknowledge</button>}{ACTIVE.has(cluster.status) && <><button type="button" className="resolve-action" onClick={() => onAction({ status: "fixed" })}>Mark fixed</button><button type="button" className="secondary-action" onClick={() => onAction({ status: "false_alarm" })}>False alarm</button></>}{Number.isFinite(cluster.centre_lat) && Number.isFinite(cluster.centre_lon) && <button type="button" className="danger-action" onClick={onWarn}>Issue Warning…</button>}</div></div>;
 }
 
-function ActivityList({ rows, clusters, locationOf, onSelect, compact = false }) {
+function ActivityList({ rows, clusters, locationOf, onSelect }) {
   const [limit, setLimit] = useState(30);
   const lookup = new Map(clusters.map((c) => [c.cluster_id, c]));
   if (!rows.length) return <div className="empty activity-empty">No activity has been recorded in this period.</div>;
-  return <><ul className={`activity-list ${compact ? "compact" : ""}`}>{rows.slice(0, compact ? 3 : limit).map((row) => {
+  return <><ul className="activity-list">{rows.slice(0, limit).map((row) => {
     const cluster = lookup.get(row.cluster_id);
     const result = row.ok === false ? `Failed${row.error ? `: ${row.error}` : ""}` : row.ok === true ? "Request accepted; delivery unconfirmed" : "Outcome unknown";
     const by = row.ip ? ` · by ${row.ip}` : "";
@@ -406,5 +417,5 @@ function ActivityList({ rows, clusters, locationOf, onSelect, compact = false })
       : notificationLabel(row);
     const [tone, Icon] = activityTone(row);
     return <li key={row.activity_id}><button type="button" className={`activity-row tone-${tone} ${row.ok === false ? "failed" : ""}`} disabled={!cluster} onClick={() => cluster && onSelect(cluster)}><Icon className="activity-icon" size={18} weight={tone === "warning" ? "bold" : "fill"} aria-hidden="true" /><span className="activity-message"><strong title={event}>{event}</strong><span>{cluster ? locationOf(cluster) : "PaaniAlert system"}</span></span><time dateTime={row.at}>{row.at ? new Date(row.at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "Time unavailable"}</time></button></li>;
-  })}</ul>{!compact && rows.length > limit && <button type="button" className="activity-more" onClick={() => setLimit(limit + 30)}>Load more activity</button>}</>;
+  })}</ul>{rows.length > limit && <button type="button" className="activity-more" onClick={() => setLimit(limit + 30)}>Load more activity</button>}</>;
 }
