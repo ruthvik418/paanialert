@@ -34,6 +34,7 @@ class TurnContext:
     profile_name: str | None = None
     phone_masked: str | None = None
     channel: str = "whatsapp"      # "whatsapp" or "app" (the web report page)
+    input_type: str = "text"        # "voice" when text is a transcript of audio_key
     saved: Report | None = field(default=None)
 
 
@@ -72,6 +73,7 @@ def save_extracted(ctx: TurnContext, fields: dict[str, Any], extracted_by: str) 
         phone_masked=ctx.phone_masked,
         extracted_by=extracted_by,
         channel=ctx.channel,
+        input_type=ctx.input_type,
         **clean,
     )
     db.put_report(report)

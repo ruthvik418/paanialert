@@ -3,8 +3,12 @@
 Public routes (no dashboard key), throttled in template.yaml:
 
     POST /app/photo-url   {device_id, content_type, size}  -> {url, photo_key, expires_in}
-    POST /app/report      {device_id, text, lat, lon, lang, photo_key?, request_id?}
-                          -> {reply, report_id, saved}
+    POST /app/audio-url   {device_id, content_type: "audio/webm", size}  -> {url, audio_key, expires_in}
+    POST /app/report      {device_id, text, lat, lon, lang, photo_key?, audio_key?, request_id?}
+                          -> 200 {reply, report_id, saved}
+                          -> 202 {request_id, status: "processing"} when audio_key is sent
+    GET  /app/report/{request_id}?device_id=...
+                          -> {status: processing|done|failed, reply?, transcript?, saved?, report_id?}
     GET  /app/push-key    -> {public_key}   (VAPID, for "Warn me about my area")
     POST /app/subscribe   {device_id, subscription, lat, lon, lang} -> {subscribed, geohash6}
     POST /app/unsubscribe {device_id, endpoint} -> {subscribed: false}
@@ -13,6 +17,12 @@ A report goes through the same worker.handle() as a WhatsApp message, with
 From "app:<device_id>" and channel "app", and the reply is returned instead of
 sent. The device id is a random UUID the page keeps in localStorage; it is
 hashed like a phone number and each one may send 10 reports a day.
+
+Voice reports can't be answered within API Gateway's 30 s: Amazon Transcribe
+alone can take most of that. So a report with audio_key is put on the worker's
+queue (IncomingQueue) and answered 202; the worker transcribes it, handles it
+like a typed message and writes the reply to AppRequests, which the page polls
+through GET /app/report/{request_id}. Typed and tile reports stay synchronous.
 """
 from __future__ import annotations
 
@@ -39,12 +49,15 @@ DAILY_LIMIT = 10
 MAX_TEXT = 1000
 MAX_PHOTO_BYTES = 5 * 1024 * 1024
 PHOTO_TYPES = {"image/jpeg": "jpg", "image/png": "png"}
+MAX_AUDIO_BYTES = 2 * 1024 * 1024   # 60 s of Opus is well under 1 MB
+AUDIO_TYPES = {"audio/webm": "webm"}
 UPLOAD_URL_SECONDS = 300
 LANGS = {"en", "hi", "hinglish"}
 # India's bounding box (mainland and islands), generous by a little.
 INDIA_LAT, INDIA_LON = (6.0, 37.5), (68.0, 97.5)
 _B64URL = re.compile(r"[A-Za-z0-9_-]{16,200}={0,2}")
 _s3 = None
+_sqs = None
 
 
 class BadRequest(Exception):
@@ -59,8 +72,12 @@ def handler(event, context):
             raise BadRequest("Send a JSON object")
         if route == "POST /app/report":
             return report(body)
+        if route == "GET /app/report/{request_id}":
+            return request_status(event)
         if route == "POST /app/photo-url":
-            return photo_url(body)
+            return upload_url(body, "photo")
+        if route == "POST /app/audio-url":
+            return upload_url(body, "audio")
         if route == "POST /app/subscribe":
             return subscribe(body)
         if route == "POST /app/unsubscribe":
@@ -86,19 +103,31 @@ def report(body: dict):
         raise BadRequest(f"lang must be one of {sorted(LANGS)}")
     photo_key = body.get("photo_key")
     if photo_key is not None:
-        _check_photo(photo_key, device_id)
-    if not text and not photo_key:
-        raise BadRequest("Write what is wrong with the water, or add a photo")
+        _check_upload(photo_key, device_id, "photo")
+    audio_key = body.get("audio_key")
+    if audio_key is not None:
+        _check_upload(audio_key, device_id, "audio")
+    if not text and not photo_key and not audio_key:
+        raise BadRequest("Write what is wrong with the water, record a message, or add a photo")
     request_id = body.get("request_id")
     if request_id is not None:
         request_id = _uuid(request_id, "request_id")
 
     sender = f"app:{device_id}"
     ph = phone_hash(sender)
+    if audio_key:
+        request_id = request_id or str(uuid.uuid4())
+        known = db.get_app_request(request_id)
+        if known:   # the page sent the same recording again: keep polling the first one
+            if known.get("device_hash") != ph:
+                raise BadRequest("request_id is already in use")
+            return reply(202, {"request_id": request_id, "status": known["status"]})
     if not db.take_app_quota(ph, now_iso()[:10], DAILY_LIMIT):
         return reply(429, {"error": f"This device has sent {DAILY_LIMIT} reports today. Try again tomorrow."})
     if db.get_language(ph) != lang:
         db.set_language(ph, lang)
+    if audio_key:
+        return _queue_voice(sender, ph, request_id, text, lat, lon, photo_key, audio_key)
 
     before = db.get_session(ph).get("last_report_id")
     sent: list[str] = []
@@ -113,22 +142,55 @@ def report(body: dict):
     return reply(200, {"reply": answer, "report_id": after if saved else None, "saved": saved})
 
 
-def photo_url(body: dict):
+def _queue_voice(sender: str, ph: str, request_id: str, text: str, lat: float, lon: float,
+                 photo_key: str | None, audio_key: str):
+    """Hand a voice report to the worker; the page polls GET /app/report/{request_id} for the reply."""
+    if db.create_app_request(request_id, ph):
+        msg = {"From": sender, "Body": text, "Latitude": str(lat), "Longitude": str(lon), "channel": "app",
+               "PhotoKey": photo_key or "", "AudioKey": audio_key, "RequestId": request_id,
+               "MessageSid": f"app-{request_id}"}
+        sqs().send_message(QueueUrl=os.environ["INCOMING_QUEUE_URL"], MessageBody=json.dumps(msg, ensure_ascii=False))
+        log.info("queued an app voice report")
+    return reply(202, {"request_id": request_id, "status": "processing"})
+
+
+def request_status(event):
+    """Where a queued voice report has got to. Only the device that sent it can see it."""
+    request_id = _uuid((event.get("pathParameters") or {}).get("request_id"), "request_id")
+    device_id = _device_id((event.get("queryStringParameters") or {}).get("device_id"))
+    item = db.get_app_request(request_id)
+    if not item or item.get("device_hash") != phone_hash(f"app:{device_id}"):
+        return reply(404, {"error": "No such request from this device"})
+    out = {"request_id": request_id, "status": item["status"]}
+    for name in ("reply", "transcript", "saved", "report_id"):
+        if name in item:
+            out[name] = item[name]
+    return reply(200, out)
+
+
+UPLOADS = {   # kind: (allowed types, max bytes, folder under app-uploads/<device>/)
+    "photo": (PHOTO_TYPES, MAX_PHOTO_BYTES, ""),
+    "audio": (AUDIO_TYPES, MAX_AUDIO_BYTES, "audio/"),
+}
+
+
+def upload_url(body: dict, kind: str):
     device_id = _device_id(body.get("device_id"))
+    types, max_bytes, folder = UPLOADS[kind]
     content_type = body.get("content_type")
-    if content_type not in PHOTO_TYPES:
-        raise BadRequest(f"content_type must be one of {sorted(PHOTO_TYPES)}")
+    if content_type not in types:
+        raise BadRequest(f"content_type must be one of {sorted(types)}")
     size = body.get("size")
-    if not isinstance(size, int) or isinstance(size, bool) or not 0 < size <= MAX_PHOTO_BYTES:
-        raise BadRequest(f"size must be the file size in bytes, at most {MAX_PHOTO_BYTES}")
-    key = f"app-uploads/{device_id}/{uuid.uuid4().hex}.{PHOTO_TYPES[content_type]}"
+    if not isinstance(size, int) or isinstance(size, bool) or not 0 < size <= max_bytes:
+        raise BadRequest(f"size must be the file size in bytes, at most {max_bytes}")
+    key = f"app-uploads/{device_id}/{folder}{uuid.uuid4().hex}.{types[content_type]}"
     # Content-Type and Content-Length are signed, so S3 refuses any other type or size.
     url = s3().generate_presigned_url(
         "put_object",
         Params={"Bucket": os.environ["MEDIA_BUCKET"], "Key": key, "ContentType": content_type, "ContentLength": size},
         ExpiresIn=UPLOAD_URL_SECONDS,
     )
-    return reply(200, {"url": url, "photo_key": key, "expires_in": UPLOAD_URL_SECONDS,
+    return reply(200, {"url": url, f"{kind}_key": key, "expires_in": UPLOAD_URL_SECONDS,
                        "headers": {"Content-Type": content_type}})
 
 
@@ -177,17 +239,19 @@ def _india(lat, lon) -> tuple[float, float]:
     return lat, lon
 
 
-def _check_photo(key, device_id: str) -> None:
-    """The photo must be one this device uploaded through /app/photo-url, and within the limits."""
-    pattern = rf"app-uploads/{re.escape(device_id)}/[0-9a-f]{{32}}\.(jpg|png)"
+def _check_upload(key, device_id: str, kind: str) -> None:
+    """The file must be one this device uploaded through /app/<kind>-url, and within the limits."""
+    types, max_bytes, folder = UPLOADS[kind]
+    pattern = rf"app-uploads/{re.escape(device_id)}/{folder}[0-9a-f]{{32}}\.({'|'.join(types.values())})"
     if not isinstance(key, str) or not re.fullmatch(pattern, key):
-        raise BadRequest("photo_key must come from /app/photo-url for this device")
+        raise BadRequest(f"{kind}_key must come from /app/{kind}-url for this device")
     try:
         head = s3().head_object(Bucket=os.environ["MEDIA_BUCKET"], Key=key)
     except Exception:
-        raise BadRequest("The photo wasn't uploaded. Try adding it again.") from None
-    if head["ContentLength"] > MAX_PHOTO_BYTES or head.get("ContentType") not in PHOTO_TYPES:
-        raise BadRequest("The photo must be a JPEG or PNG of at most 5 MB")
+        raise BadRequest(f"The {kind} wasn't uploaded. Try adding it again.") from None
+    if head["ContentLength"] > max_bytes or head.get("ContentType") not in types:
+        what = "a JPEG or PNG of at most 5 MB" if kind == "photo" else "a WebM recording of at most 2 MB"
+        raise BadRequest(f"The {kind} must be {what}")
 
 
 def _device_id(value) -> str:
@@ -215,6 +279,13 @@ def s3():
     if _s3 is None:
         _s3 = boto3.client("s3", region_name=REGION, config=Config(signature_version="s3v4"))
     return _s3
+
+
+def sqs():
+    global _sqs
+    if _sqs is None:
+        _sqs = boto3.client("sqs", region_name=REGION)
+    return _sqs
 
 
 def reply(status: int, body: dict):

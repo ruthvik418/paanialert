@@ -58,7 +58,9 @@ def handler(event, context):
     if route == "POST /reports/{id}/contact":
         return contact(event)
     if route == "GET /reports/{id}/photo":
-        return photo(event)
+        return media_link(event, "photo")
+    if route == "GET /reports/{id}/audio":
+        return media_link(event, "audio")
     if route == "GET /activity":
         return activity(event)
     return reply(404, {"error": f"No route {route}"})
@@ -95,16 +97,17 @@ def contact(event):
     return reply(200, {"report_id": report.report_id, "phone": phone})
 
 
-def photo(event):
-    """A link to the report's photo that works for 5 minutes."""
+def media_link(event, kind: str):
+    """A link to the report's photo or voice note ("photo" or "audio") that works for 5 minutes."""
     global _s3
     report = db.get_report((event.get("pathParameters") or {}).get("id", ""))
-    if not report or not report.photo_key:
-        return reply(404, {"error": "No photo for this report"})
+    key = getattr(report, f"{kind}_key", None) if report else None
+    if not key:
+        return reply(404, {"error": f"No {kind} for this report"})
     if _s3 is None:
         _s3 = boto3.client("s3", region_name=REGION, config=Config(signature_version="s3v4"))
     url = _s3.generate_presigned_url(
-        "get_object", Params={"Bucket": os.environ["MEDIA_BUCKET"], "Key": report.photo_key},
+        "get_object", Params={"Bucket": os.environ["MEDIA_BUCKET"], "Key": key},
         ExpiresIn=PHOTO_URL_SECONDS,
     )
     return reply(200, {"url": url, "expires_in": PHOTO_URL_SECONDS})

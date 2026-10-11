@@ -12,25 +12,41 @@ Disease surveillance reacts once patients reach hospitals. Complaints about the 
 
 ## How it works
 
-1. **Report.** A resident messages the WhatsApp bot, or opens the web report page (`/report`) with no sign-up. An AI agent pulls out the smell, colour, taste, how long it has been happening and whether anyone is sick, asks for a location pin, and replies with conservative advice: boil water, ORS, call 108 for blood in stool or dehydration.
+1. **Report.** A resident messages the WhatsApp bot, or opens the web report page (`/report`) with no sign-up, and types, taps, sends a photo or speaks. Voice notes on WhatsApp and recordings on the web page are turned into text by Amazon Transcribe (Hindi or Indian English, detected automatically), and the reply starts with "I heard: …" so the person can check it. An AI agent pulls out the smell, colour, taste, how long it has been happening and whether anyone is sick, asks for a location pin, and replies with conservative advice: boil water, ORS, call 108 for blood in stool or dehydration.
 2. **Detect.** Every 15 minutes a cluster check looks at each area over the last 48 hours. 3+ distinct phones is a Watch; 5+ phones or 2+ sick households is an Alert.
-3. **Alert.** Subscribers nearby get a boil-water advisory as text and a Hindi voice note on WhatsApp, or a browser notification if they turned on "Warn me about my area" on the web page. The ward engineer is notified, and the district health officer if nobody acts within 24 hours.
+3. **Alert.** Subscribers nearby get a boil-water advisory as a WhatsApp text, or a browser notification if they turned on "Warn me about my area" on the web page. The ward engineer is notified, and the district health officer if nobody acts within 24 hours.
 4. **Act.** Officials review reports on the dashboard, mark them resolved or false (false reports are left out of the cluster rule), and can issue a boil-water or do-not-use warning for a 500 m, 1 km or 2 km radius, then lift it with an all-clear.
-
-On normal days in Delhi, people can send a photo of a TDS meter and learn whether they need an RO purifier at all.
 
 ## Architecture
 
 ```
 WhatsApp (Twilio) ─► API Gateway ─► Lambda (instant reply) ─► SQS ─► Lambda worker ─► Strands agent (Amazon Bedrock)
+                                                                                     ├─ Amazon Transcribe (voice notes)
                                                                                      ├─ Amazon Location Service
-                                                                                     ├─ DynamoDB · S3
-                                                                                     └─ Transcribe · Polly (Hindi voice)
+                                                                                     └─ DynamoDB · S3
 Web report page (/report) ─► API Gateway ─► Lambda (same worker logic, photos to S3)
+                              └─ recordings: 202 ─► SQS ─► Lambda worker (Transcribe) ─► page polls the result
 EventBridge (every 15 min) ─► Lambda cluster check ─► SNS (officials) + WhatsApp and web push advisories (residents)
 Amplify dashboard ◄─ API Gateway ◄─ Lambda API
 Deployed with AWS SAM · logs in CloudWatch · region ap-south-1 (Mumbai)
 ```
+
+## AWS services
+
+| Service | What it does here |
+|---|---|
+| AWS Lambda | Webhook, worker, web report API, cluster check, dashboard API |
+| Amazon API Gateway (HTTP API) | Twilio webhook, web report routes, dashboard API |
+| Amazon SQS | Queue between the webhook (or a web voice report) and the worker, with a dead-letter queue |
+| Amazon Bedrock | Reads each message into report fields (Qwen3 through `bedrock-mantle`) |
+| Amazon Transcribe | Batch transcription of WhatsApp voice notes (OGG/Opus) and web recordings (WebM/Opus), Hindi or Indian English |
+| Amazon DynamoDB | Reports, clusters, subscribers, sessions, advisories, web voice request status |
+| Amazon S3 | Photos, voice notes and transcripts, deleted after 7 days |
+| Amazon Location Service | Place names for pins; map tiles on the dashboard |
+| Amazon SNS | Emails to the ward engineer and district health officer |
+| Amazon EventBridge | Runs the cluster check every 15 minutes |
+| AWS Systems Manager Parameter Store | Secrets (Twilio, HMAC, dashboard key, VAPID) |
+| AWS Amplify Hosting | Dashboard, public warnings page and web report page |
 
 ## Repo layout
 
@@ -40,7 +56,7 @@ Deployed with AWS SAM · logs in CloudWatch · region ap-south-1 (Mumbai)
 | `src/common/` | Shared config, records, DynamoDB helpers | A (B owns `twilio_send.py`) |
 | `src/webhook/` | Twilio webhook: validate, queue, reply instantly | A |
 | `src/worker/` | Queue consumer: runs the agent, sends the reply | B · Agent & WhatsApp |
-| `src/agent/` | Prompts, tools, voice, TDS check | B |
+| `src/agent/` | Prompts, model extraction, keyword fallback, voice transcription | B |
 | `src/cluster/` | Cluster rule and the scheduled check | A |
 | `src/api/` | Dashboard API | A |
 | `dashboard/` | React + MapLibre dashboard on Amplify | C · Dashboard & story |
@@ -111,7 +127,16 @@ The agent reads each message with Qwen3 235B (Qwen3 VL as backup, `ModelIds` par
 
 A second way to report, for people who haven't joined the Twilio sandbox: `https://<dashboard>/report` on a phone. One screen with the reply language (English, हिंदी, Hinglish), the message, a location (browser location or a tap on the map) and an optional photo. It calls the public `POST /app/report` (`src/api/app_report.py`), which runs the same `worker.handle()` as WhatsApp with `channel = "app"` and returns the bot's reply. Photos go straight to S3 under `app-uploads/` through `POST /app/photo-url` (presigned PUT, 5 minutes, JPEG or PNG, at most 5 MB). Both routes are throttled (1 request/s, burst 5, shared by everyone), and each device (a random id kept in the browser) can send 10 reports a day. Officials see app reports with a 📱 label.
 
+The page also has a large "Hold to Speak or Tap to Record" button (up to 60 seconds, with a timer, playback and Record Again). The recording (WebM/Opus, at most 2 MB) is uploaded through `POST /app/audio-url` to `app-uploads/<device>/audio/`. Because transcription can take longer than API Gateway's 30 seconds, `POST /app/report` with an `audio_key` answers 202 and puts the report on the worker's queue; the worker transcribes it and handles it like a typed message, and the page polls `GET /app/report/{request_id}` every 2 seconds ("Listening to your message…", up to 75 seconds) and then shows "I heard: …" on the confirmation card. Typed and tile reports are answered synchronously as before. On the dashboard, voice reports carry a 🎤 Voice label, the transcript and a Play Recording button (a 5-minute link).
+
 If the pin or the device's location is inside an active warning, the page shows a red banner at the top (it checks `GET /public/advisories` on open and every 60 seconds). The "Warn me about my area" switch subscribes the browser to web push for the area around its pin (`POST /app/subscribe`, service worker `/sw.js`, VAPID keys in SSM as `/paanialert/vapid_*`). Automatic Alerts, officials' warnings and all-clears are pushed to those browsers in their language; subscriptions the push service rejects are removed.
+
+## Limitations
+
+- Voice: Amazon Transcribe batch jobs usually take 10–30 seconds, and the worker waits at most 60. If a recording can't be transcribed (failed, too slow or silent), the bot asks the person to type instead; the recording is kept for 7 days but no report is saved from it. Only Hindi (`hi-IN`) and Indian English (`en-IN`) are recognised; Hinglish speech comes back as one of the two.
+- The web recorder needs MediaRecorder with WebM/Opus (Chrome, Edge, Firefox, Android). Where that isn't available (for example older Safari on iPhone), the record button is hidden and people tap or type instead.
+- Throttling on the public web routes is shared by everyone, not per person.
+- The cluster rule's thresholds are fixed, not tuned on real outbreak data; the Indore replay is a simulation.
 
 ## Working together
 

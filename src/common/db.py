@@ -326,3 +326,38 @@ def app_subscribers_in_cells(cells: list[str]) -> list[dict[str, Any]]:
     for cell in cells:
         out += _query_all(tbl, IndexName="by-cell", KeyConditionExpression=Key("geohash6").eq(cell))
     return out
+
+
+# App requests: web voice reports are handled by the worker in the background; the page polls their status
+
+def create_app_request(request_id: str, device_hash: str) -> bool:
+    """Start tracking a queued voice report. False if this request_id was already queued. Expires after 1 day."""
+    try:
+        _table("app_requests").put_item(
+            Item={"request_id": request_id, "device_hash": device_hash, "status": "processing",
+                  "created_at": now_iso(), "expires_at": int(time.time()) + 24 * 3600},
+            ConditionExpression="attribute_not_exists(request_id)",
+        )
+        return True
+    except Exception as exc:
+        if "ConditionalCheckFailed" in str(exc):
+            return False
+        raise
+
+
+def get_app_request(request_id: str) -> dict[str, Any] | None:
+    item = _table("app_requests").get_item(Key={"request_id": request_id}).get("Item")
+    return _from_dynamo(item) if item else None
+
+
+def finish_app_request(request_id: str, status: str, **fields: Any) -> None:
+    """status "done" with reply, transcript, saved and report_id, or "failed"."""
+    values = {k: v for k, v in fields.items() if v is not None}
+    names = {"#s": "status", **{f"#{k}": k for k in values}}
+    sets = ["#s = :s"] + [f"#{k} = :{k}" for k in values]
+    _table("app_requests").update_item(
+        Key={"request_id": request_id},
+        UpdateExpression="SET " + ", ".join(sets),
+        ExpressionAttributeNames=names,
+        ExpressionAttributeValues={":s": status, **{f":{k}": _to_dynamo(v) for k, v in values.items()}},
+    )

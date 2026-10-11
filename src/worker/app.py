@@ -15,6 +15,12 @@ Location pins are handled here, not by the model: a pin attaches to the
 person's last report if it has no location yet, otherwise it is kept for their
 next report.
 
+Voice: a voice note (WhatsApp) or recording (web app) is transcribed with
+Amazon Transcribe (agent/voice.py) and then handled exactly like typed text.
+The reply starts with "I heard: …", the report's text is the transcript
+marked with 🎤, and input_type is "voice". If nothing usable comes back, the
+person is asked to type (VOICE_PENDING) and nothing is saved.
+
 The web report app (POST /app/report, api/app_report.py) calls handle() too,
 with channel "app", From "app:<device id>" and its own send function. App
 messages always carry text and a location together and have their own language
@@ -24,9 +30,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Callable
 
-from agent import fallback, prompts
+from agent import fallback, prompts, voice
 from agent.media import save_media
 from agent.reports import TurnContext, save_extracted
 from agent.runner import AgentUnavailable, reply as agent_reply
@@ -49,11 +56,41 @@ LANGUAGE_WORDS = {
 MENU_NUMBERS = {"1": "en", "2": "hi", "3": "hinglish", "१": "en", "२": "hi", "३": "hinglish"}
 YES_WORDS = {"yes", "y", "yeah", "ok", "okay", "haan", "haa", "ha", "han", "hn", "ji", "haan ji", "हाँ", "हां", "जी"}
 NO_WORDS = {"no", "n", "nahi", "nahin", "nhi", "na", "नहीं", "ना"}
+# Audio file extension (see agent/media.py and api/app_report.py) to Amazon Transcribe MediaFormat.
+TRANSCRIBE_FORMATS = {"ogg": "ogg", "webm": "webm", "mp3": "mp3", "m4a": "m4a", "amr": "amr"}
+MAX_RECEIVES = 3   # IncomingQueue's maxReceiveCount in template.yaml
 
 
 def handler(event, context):
     for record in event["Records"]:
-        handle(json.loads(record["body"]))
+        msg = json.loads(record["body"])
+        if msg.get("RequestId"):
+            last_try = int((record.get("attributes") or {}).get("ApproximateReceiveCount") or 1) >= MAX_RECEIVES
+            handle_app_request(msg, last_try)
+        else:
+            handle(msg)
+
+
+def handle_app_request(msg: dict, last_try: bool = True) -> None:
+    """A web voice report queued by POST /app/report. The result goes to AppRequests for GET /app/report/{id}."""
+    request_id = msg["RequestId"]
+    if (db.get_app_request(request_id) or {}).get("status") == "done":
+        return   # SQS delivered it twice
+    ph = phone_hash(msg["From"])
+    before = db.get_session(ph).get("last_report_id")
+    try:
+        answer = handle(msg, send=lambda to, body: None)
+    except Exception:
+        if last_try:
+            db.finish_app_request(request_id, "failed")
+        raise
+    if not answer:
+        return   # the MessageSid was already handled
+    after = db.get_session(ph).get("last_report_id")
+    saved = bool(after) and after != before
+    db.finish_app_request(request_id, "done", reply=answer, transcript=msg.get("Transcript"),
+                          saved=saved, report_id=after if saved else None)
+    log.info("app voice report done: saved=%s heard=%s", saved, bool(msg.get("Transcript")))
 
 
 def handle(msg: dict, send: Callable[[str, str], object] | None = None) -> str:
@@ -151,24 +188,38 @@ def _offer_alerts(state: dict, report, lang: str) -> str:
 
 def _handle_message(msg: dict, text: str, ph: str, state: dict, turns: list, lang: str) -> str:
     app = msg.get("channel") == "app"
-    if app:   # location and photo come with the message, already checked by api/app_report.py
+    if app:   # location, photo and recording come with the message, already checked by api/app_report.py
         pending = [_float(msg.get("Latitude")), _float(msg.get("Longitude"))]
-        photo_key, audio_key = msg.get("PhotoKey") or None, None
+        photo_key, audio_key = msg.get("PhotoKey") or None, msg.get("AudioKey") or None
     else:
         pending = state.get("pending_location")
         photo_key, audio_key = save_media(msg, msg.get("MessageSid") or "media")
+
+    heard, msg_lang = None, fallback.detect_lang(text) if text else None
+    if audio_key:
+        result = _transcribe(audio_key)
+        if result is None and not text:
+            return prompts.VOICE_PENDING[lang]
+        if result:
+            heard, code = result
+            msg["Transcript"] = heard   # handle_app_request returns it to the web page
+            msg_lang = "hi" if code.startswith("hi") else "en"
+            # Someone who speaks Hindi and hasn't picked a language yet is answered in Hindi.
+            if msg_lang == "hi" and not app and db.get_language(ph) is None:
+                lang = "hi"
+            text = f"{heard}. {text}" if text else heard
     ctx = TurnContext(
-        phone_hash=ph, lang=lang, msg_lang=fallback.detect_lang(text) if text else None,
+        phone_hash=ph, lang=lang, msg_lang=msg_lang,
         lat=pending[0] if pending else None, lon=pending[1] if pending else None,
         photo_key=photo_key, audio_key=audio_key,
-        text=text or None, profile_name=(msg.get("ProfileName") or "").strip()[:80] or None,
+        text=(prompts.VOICE_MARK + text if heard else text) or None,
+        profile_name=(msg.get("ProfileName") or "").strip()[:80] or None,
         phone_masked=None if app else mask_number(msg["From"]),
         channel="app" if app else "whatsapp",
+        input_type="voice" if heard else "text",
     )
 
     if not text:
-        if audio_key:
-            return prompts.VOICE_PENDING[lang]
         text = "[photo of the water, no text]" if photo_key else ""
 
     try:
@@ -186,7 +237,20 @@ def _handle_message(msg: dict, text: str, ph: str, state: dict, turns: list, lan
             answer += "\n\n" + prompts.ASK_LOCATION[lang]
         else:
             answer += _offer_alerts(state, ctx.saved, lang)
+    if heard:
+        shown = heard if len(heard) <= prompts.HEARD_CHARS else heard[:prompts.HEARD_CHARS].rstrip() + "…"
+        answer = prompts.HEARD[lang].format(text=shown) + "\n\n" + answer
     return answer
+
+
+def _transcribe(audio_key: str) -> tuple[str, str] | None:
+    """(transcript, language code) for a stored voice note; None if it can't be read. Never raises."""
+    extension = audio_key.rsplit(".", 1)[-1].lower()
+    media_format = TRANSCRIBE_FORMATS.get(extension)
+    if not media_format:
+        log.info("no transcription for .%s audio", extension)
+        return None
+    return voice.transcribe(os.environ["MEDIA_BUCKET"], audio_key, media_format)
 
 
 def _keyword_reply(text: str, ctx: TurnContext) -> str:

@@ -72,6 +72,7 @@ Globals:
         APP_QUOTA_TABLE: !Ref AppQuotaTable
         ADVISORIES_TABLE: !Ref AdvisoriesTable
         APP_SUBSCRIBERS_TABLE: !Ref AppSubscribersTable
+        APP_REQUESTS_TABLE: !Ref AppRequestsTable
         VAPID_SUBJECT: !Ref DashboardUrl   # identifies us to the browsers' push services
         MEDIA_BUCKET: !Ref MediaBucket
         TWILIO_WHATSAPP_FROM: !Ref TwilioWhatsAppFrom
@@ -89,6 +90,8 @@ Resources:
       RouteSettings:
         "POST /app/report": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 5 }
         "POST /app/photo-url": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 5 }
+        "POST /app/audio-url": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 5 }
+        "GET /app/report/{request_id}": { ThrottlingRateLimit: 10, ThrottlingBurstLimit: 20 }   # polled every 2 s
         "POST /app/subscribe": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 5 }
         "POST /app/unsubscribe": { ThrottlingRateLimit: 1, ThrottlingBurstLimit: 5 }
         "GET /app/push-key": { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 10 }
@@ -237,6 +240,18 @@ Resources:
       KeySchema:
         - { AttributeName: advisory_id, KeyType: HASH }
 
+  AppRequestsTable:   # web voice reports the worker is handling; the report page polls them (1-day TTL)
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: request_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: request_id, KeyType: HASH }
+      TimeToLiveSpecification:
+        AttributeName: expires_at
+        Enabled: true
+
   AppQuotaTable:   # reports per web-app device per day (UTC), so one device can't flood the map
     Type: AWS::DynamoDB::Table
     Properties:
@@ -252,7 +267,7 @@ Resources:
   MediaBucket:
     Type: AWS::S3::Bucket
     Properties:
-      CorsConfiguration:   # the report page uploads photos straight to S3 with a presigned PUT
+      CorsConfiguration:   # the report page uploads photos and recordings straight to S3 with a presigned PUT
         CorsRules:
           - AllowedMethods: [PUT]
             AllowedOrigins: [!Ref DashboardUrl, "http://localhost:5173"]
@@ -321,11 +336,27 @@ Resources:
         - DynamoDBCrudPolicy: { TableName: !Ref SubscribersTable }
         - DynamoDBCrudPolicy: { TableName: !Ref SessionsTable }
         - DynamoDBCrudPolicy: { TableName: !Ref PreferencesTable }
-        - S3CrudPolicy: { BucketName: !Ref MediaBucket }
         - Statement:
             - Effect: Allow
               Action: [dynamodb:PutItem, dynamodb:DeleteItem]
               Resource: !GetAtt ProcessedMessagesTable.Arn
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:UpdateItem]   # results of web voice reports
+              Resource: !GetAtt AppRequestsTable.Arn
+            # Media: WhatsApp attachments are copied in; Transcribe reads voice notes and web recordings
+            # with this role's permissions and writes its transcript to transcripts/, which is read back.
+            - Effect: Allow
+              Action: [s3:PutObject, s3:GetObject]
+              Resource: !Sub "${MediaBucket.Arn}/media/*"
+            - Effect: Allow
+              Action: s3:GetObject
+              Resource: !Sub "${MediaBucket.Arn}/app-uploads/*/audio/*"
+            - Effect: Allow
+              Action: [s3:PutObject, s3:GetObject]
+              Resource: !Sub "${MediaBucket.Arn}/transcripts/*"
+            - Effect: Allow
+              Action: [transcribe:StartTranscriptionJob, transcribe:GetTranscriptionJob]
+              Resource: !Sub "arn:${AWS::Partition}:transcribe:${AWS::Region}:${AWS::AccountId}:transcription-job/paanialert-*"
             - Effect: Allow
               Action: dynamodb:PutItem
               Resource: !GetAtt ContactsTable.Arn
@@ -360,7 +391,8 @@ Resources:
             BatchSize: 1
             ScalingConfig: { MaximumConcurrency: 5 }
 
-  # Web report app: POST /app/report runs the same message handling as the worker, synchronously
+  # Web report app: POST /app/report runs the same message handling as the worker, synchronously,
+  # except voice reports, which go on IncomingQueue and are polled (GET /app/report/{request_id})
 
   AppFunction:
     Type: AWS::Serverless::Function
@@ -370,6 +402,7 @@ Resources:
       MemorySize: 1024
       Environment:
         Variables:
+          INCOMING_QUEUE_URL: !Ref IncomingQueue
           MODEL_ENDPOINT: !Ref ModelEndpoint
           MANTLE_REGION: !Ref MantleRegion
           MODEL_IDS: !Ref ModelIds
@@ -389,10 +422,16 @@ Resources:
               Action: dynamodb:UpdateItem
               Resource: !GetAtt AppQuotaTable.Arn
             - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:PutItem]   # queue and poll web voice reports
+              Resource: !GetAtt AppRequestsTable.Arn
+            - Effect: Allow
+              Action: sqs:SendMessage
+              Resource: !GetAtt IncomingQueue.Arn
+            - Effect: Allow
               Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:DeleteItem]   # "Warn me about my area"
               Resource: !GetAtt AppSubscribersTable.Arn
             - Effect: Allow
-              Action: [s3:PutObject, s3:GetObject]   # sign upload URLs; check the uploaded photo
+              Action: [s3:PutObject, s3:GetObject]   # sign upload URLs; check the uploaded photo or recording
               Resource: !Sub "${MediaBucket.Arn}/app-uploads/*"
             - Effect: Allow
               Action: ssm:GetParameter
@@ -419,6 +458,12 @@ Resources:
         PhotoUrl:
           Type: HttpApi
           Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: /app/photo-url }
+        AudioUrl:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: /app/audio-url }
+        ReportResult:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: "/app/report/{request_id}" }
         Subscribe:
           Type: HttpApi
           Properties: { ApiId: !Ref PaaniApi, Method: POST, Path: /app/subscribe }
@@ -499,7 +544,7 @@ Resources:
               Action: [dynamodb:PutItem, dynamodb:Scan]   # log status changes and all-clears; GET /activity
               Resource: !GetAtt ActivityTable.Arn
             - Effect: Allow
-              Action: s3:GetObject          # presigned links to report photos (WhatsApp and web app)
+              Action: s3:GetObject          # presigned links to report photos and voice notes (WhatsApp and web app)
               Resource: [!Sub "${MediaBucket.Arn}/media/*", !Sub "${MediaBucket.Arn}/app-uploads/*"]
             - Effect: Allow
               Action: dynamodb:UpdateItem   # officials' status on a report
@@ -547,6 +592,9 @@ Resources:
         ReportPhoto:
           Type: HttpApi
           Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: "/reports/{id}/photo" }
+        ReportAudio:
+          Type: HttpApi
+          Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: "/reports/{id}/audio" }
         Activity:
           Type: HttpApi
           Properties: { ApiId: !Ref PaaniApi, Method: GET, Path: /activity }

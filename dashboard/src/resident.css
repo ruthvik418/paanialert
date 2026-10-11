@@ -156,6 +156,23 @@
 .rs-spin { animation: rs-spin .8s linear infinite; }
 @keyframes rs-spin { to { transform: rotate(360deg); } }
 
+/* Voice recording */
+.rs-voice { display: flex; flex-direction: column; gap: 8px; }
+.rs-voice-button { display: flex; width: 100%; min-height: 80px; align-items: center; justify-content: center; gap: 12px; padding: 12px 20px;
+  border: 2px solid var(--rs-blue); border-radius: 14px; background: var(--rs-surface); color: var(--rs-blue); font-size: 19px; font-weight: 600; line-height: 1.3;
+  cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+  transition: background-color .15s, border-color .15s, color .15s; }
+.rs-voice-button:hover { background: var(--rs-blue-tint); }
+.rs-voice-button:focus-visible { outline: none; box-shadow: var(--rs-focus); }
+.rs-voice-button.recording { border-color: var(--rs-alert); background: var(--rs-alert); color: #fff; }
+.rs-voice-timer { display: flex; min-height: 24px; align-items: center; gap: 8px; color: var(--rs-muted); font-size: 16px; }
+.rs-voice-timer.live { color: var(--rs-alert); font-weight: 600; }
+.rs-voice-timer .rs-num { font-variant-numeric: tabular-nums; }
+.rs-voice-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--rs-alert); animation: rs-pulse 1s ease-in-out infinite alternate; }
+@keyframes rs-pulse { from { opacity: 1; } to { opacity: .3; } }
+.rs-voice-done { display: grid; gap: 8px; }
+.rs-voice-done audio { width: 100%; }
+
 /* Send */
 .rs-send { display: flex; flex-direction: column; gap: 12px; padding-top: 8px; }
 .rs-preview { padding: 12px 16px; border-left: 4px solid var(--rs-blue); border-radius: 0 10px 10px 0; background: var(--rs-blue-tint); }
@@ -182,6 +199,9 @@
 .rs-card { display: flex; flex-direction: column; gap: 12px; padding: 20px 16px; border: 1px solid var(--rs-line); border-radius: 12px; background: var(--rs-surface); }
 .rs-done-title { display: flex; align-items: center; gap: 12px; }
 .rs-done-title svg { flex: none; color: var(--rs-ok); }
+.rs-heard { display: grid; gap: 4px; padding: 12px 16px; border-radius: 10px; background: var(--rs-blue-tint); }
+.rs-heard h2 { display: flex; align-items: center; gap: 6px; color: var(--rs-blue); font-size: 16px; font-weight: 600; }
+.rs-heard p { font-size: 18px; line-height: 1.5; overflow-wrap: anywhere; }
 .rs-understood { display: grid; gap: 4px; padding: 12px 16px; border-radius: 10px; background: var(--rs-ok-tint); }
 .rs-understood h2 { color: var(--rs-ok); font-size: 16px; font-weight: 600; }
 .rs-understood p { font-size: 19px; font-weight: 600; line-height: 1.5; }

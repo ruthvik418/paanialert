@@ -133,8 +133,18 @@ NOT_SUBSCRIBED = {
     "hinglish": "Theek hai, koi alert nahi bhejenge. Aap kabhi bhi kharab paani report kar sakte hain.",
 }
 
+# Sent when a voice note couldn't be turned into text (Transcribe failed, timed out or heard nothing).
 VOICE_PENDING = {
-    "en": "Got your voice note. Voice is coming soon; for now please type a few words: smell, colour, anyone sick?",
-    "hi": "आपका वॉइस नोट मिला। अभी कृपया कुछ शब्द लिखकर भेजें: बदबू, रंग, कोई बीमार?",
-    "hinglish": "Voice note mila. Abhi ke liye kuch shabd likh kar bhejiye: badboo, rang, koi bimar?",
+    "en": "Got your voice note, but I couldn't make out the words. Please type a few words: smell, colour, anyone sick?",
+    "hi": "आपका वॉइस नोट मिला, पर शब्द समझ नहीं आए। कृपया कुछ शब्द लिखकर भेजें: बदबू, रंग, कोई बीमार?",
+    "hinglish": "Voice note mila, par shabd samajh nahi aaye. Kuch shabd likh kar bhejiye: badboo, rang, koi bimar?",
 }
+
+# First line of the reply to a voice note: what Transcribe heard, so the person can check it.
+HEARD = {
+    "en": "I heard: {text}",
+    "hi": "मैंने सुना: {text}",
+    "hinglish": "Maine suna: {text}",
+}
+VOICE_MARK = "🎤 "   # starts Report.text when the text is a transcript
+HEARD_CHARS = 80

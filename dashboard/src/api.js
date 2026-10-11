@@ -43,6 +43,8 @@ export const getContact = (key, id) =>
   call(`/reports/${encodeURIComponent(id)}/contact`, { key, method: "POST" }).then((d) => d.phone);
 // A link to the report's photo that works for 5 minutes.
 export const getPhotoUrl = (key, id) => call(`/reports/${encodeURIComponent(id)}/photo`, { key }).then((d) => d.url);
+// The same for a voice report's recording.
+export const getAudioUrl = (key, id) => call(`/reports/${encodeURIComponent(id)}/audio`, { key }).then((d) => d.url);
 export const setClusterStatus = (key, id, status) =>
   call(`/clusters/${encodeURIComponent(id)}/status`, { key, method: "POST", body: { status } });
 
@@ -117,10 +119,38 @@ export async function uploadPhoto(blob) {
   return photo_key;
 }
 
-// {reply, report_id, saved}. request_id makes a retried send count once.
-export const sendAppReport = ({ text, lat, lon, lang, photoKey, requestId }) =>
+// Upload a voice recording (WebM, at most 2 MB) the same way; returns its audio_key.
+export async function uploadAudio(blob) {
+  const { url, audio_key } = await post("/app/audio-url", { device_id: deviceId(), content_type: blob.type, size: blob.size });
+  await send("PUT", url, { headers: { "content-type": blob.type }, body: blob });
+  return audio_key;
+}
+
+// {reply, report_id, saved}, or for a recording {request_id, status: "processing"} (then poll pollAppReport).
+// request_id makes a retried send count once.
+export const sendAppReport = ({ text, lat, lon, lang, photoKey, audioKey, requestId }) =>
   post("/app/report", { device_id: deviceId(), text, lat, lon, lang, request_id: requestId,
-    ...(photoKey ? { photo_key: photoKey } : {}) });
+    ...(photoKey ? { photo_key: photoKey } : {}), ...(audioKey ? { audio_key: audioKey } : {}) });
+
+// {status: "processing" | "done" | "failed", reply?, transcript?, saved?, report_id?}
+export const getAppReport = (requestId) =>
+  send("GET", `${API}/app/report/${encodeURIComponent(requestId)}?device_id=${encodeURIComponent(deviceId())}`, {});
+
+const POLL_MS = 2000;
+export const VOICE_WAIT_MS = 75000;
+
+// Poll a voice report every 2 s until it's done, for at most 75 s. Throws ApiError kind "timeout" or "failed".
+export async function waitForAppReport(requestId) {
+  const until = performance.now() + VOICE_WAIT_MS;
+  while (performance.now() < until) {
+    await new Promise((r) => setTimeout(r, POLL_MS));
+    let res;
+    try { res = await getAppReport(requestId); } catch (err) { if (err.kind === "network") continue; throw err; }
+    if (res.status === "done") return res;
+    if (res.status === "failed") throw new ApiError(0, "the voice report could not be handled", "failed");
+  }
+  throw new ApiError(0, `no reply in ${VOICE_WAIT_MS / 1000} s`, "timeout");
+}
 
 export const newRequestId = newId;
 
