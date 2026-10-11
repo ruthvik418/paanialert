@@ -1,33 +1,104 @@
 # PaaniAlert
 
-Early warning for unsafe drinking water. Residents report bad water on WhatsApp or from a web page on their phone, in Hindi or English, as text, a voice note or a photo. When several reports cluster in one area, PaaniAlert warns everyone nearby to boil their water and alerts the officials responsible, escalating if nobody acts.
+Early warning for unsafe drinking water, from the complaints that come before the hospital cases.
+
+[Demo video](VIDEO_URL) · [Try it](https://main.dy95ki8l9ef8x.amplifyapp.com/report) · [Officials' dashboard](https://main.dy95ki8l9ef8x.amplifyapp.com) · [Public map](https://main.dy95ki8l9ef8x.amplifyapp.com/public) · [Android app](APK_URL) · [Blog](BLOG_URL) · [Chat on WhatsApp](https://wa.me/14155238886?text=join%20either-tried)
 
 Built by Team Crystal Red for the WeMakeDevs × AWS Environmental Hacks, Oct 8–11, 2026 (Heat and Water track).
 
+## Try it in 2 minutes (for judges)
+
+1. **Report.** Open https://main.dy95ki8l9ef8x.amplifyapp.com/report on a phone. Tap what's wrong (smell, colour, taste, someone sick), type, or hold the button and say it in Hindi or English; set the location and send. To install it, use the [Android app](APK_URL), or open the link on Android Chrome and tap **Add to Home Screen**, which works today.
+2. **Officials' dashboard.** https://main.dy95ki8l9ef8x.amplifyapp.com. The access key is in our submission form. Open the Alert in Indore (Rajwada), look at its reports, try **Issue Warning** (choose a radius, see who it would reach, confirm) and **Lift**, then open the **Activity log** to see every step.
+3. **Public map.** https://main.dy95ki8l9ef8x.amplifyapp.com/public shows what residents see: rounded clusters and official warnings, no report text.
+4. **WhatsApp (optional).** Message +1 (415) 523-8886 on WhatsApp. Your first message must be `join either-tried` (this joins our Twilio sandbox). Then send a complaint in Hindi, English or Hinglish, as text, a photo, a location pin or a voice note. Try: `Nal ka paani peela aa raha hai, badboo hai, 2 din se`. Sandbox access lasts 72 hours; send the join message again if the bot stops replying. [Chat on WhatsApp](https://wa.me/14155238886?text=join%20either-tried)
+
+The Indore clusters on the dashboard are test data (made-up phone hashes, marked "TEST REPORT"), so nobody is messaged because of them.
+
+The Android app is a Trusted Web Activity: it opens the live `/report` page, so it already has voice reports and every later change without a rebuild.
+
+<p>
+  <img src="docs/screenshots/after/report-tiles-360.png" alt="Report page on a phone: tap tiles for smell, colour, taste and sickness" width="270">
+  <img src="docs/screenshots/after/report-sent-360.png" alt="Report sent: what PaaniAlert understood and what to do now" width="270">
+</p>
+
+![Officials' dashboard: map of clusters and reports in Indore](docs/screenshots/after/dashboard-1440.png)
+![Issuing a boil-water warning for a circle on the map](docs/screenshots/after/dashboard-warning-1440.png)
+
 ## Why
 
-In December 2025, sewage leaked into a drinking-water pipeline in Bhagirathpura, Indore. 32 people died and about 1,400 fell ill. Residents had complained about foul, discoloured water before people got sick, but the complaints were scattered and nobody connected them. A judicial panel later called the deaths preventable.
+In December 2025, sewage leaked into a drinking-water pipeline in Bhagirathpura, Indore. Dozens died: the health department was told of 35 deaths in the area and linked 22 to the water; about 1,400 fell ill. Residents had complained about foul-smelling water from mid-December, and on 25 December about water with an unusual smell, before the first illnesses on 27 December. The complaints were scattered and nobody connected them. On 1 October 2026 the judicial commission reported that the tragedy "could have been prevented" ([DT Next](https://www.dtnext.in/news/national/indore-water-linked-deaths-preventable-pipeline-tender-delays-contributed-to-tragedy-judicial-panel)). Every number here is sourced in [`docs/sources.md`](docs/sources.md).
 
 Disease surveillance reacts once patients reach hospitals. Complaints about the water come days earlier. PaaniAlert moves the alarm to the complaints.
 
 ## How it works
 
-1. **Report.** A resident messages the WhatsApp bot, or opens the web report page (`/report`) with no sign-up, and types, taps, sends a photo or speaks. Voice notes on WhatsApp and recordings on the web page are turned into text by Amazon Transcribe (Hindi or Indian English, detected automatically), and the reply starts with "I heard: …" so the person can check it. An AI agent pulls out the smell, colour, taste, how long it has been happening and whether anyone is sick, asks for a location pin, and replies with conservative advice: boil water, ORS, call 108 for blood in stool or dehydration.
-2. **Detect.** Every 15 minutes a cluster check looks at each area over the last 48 hours. 3+ distinct phones is a Watch; 5+ phones or 2+ sick households is an Alert.
-3. **Alert.** Subscribers nearby get a boil-water advisory as a WhatsApp text, or a browser notification if they turned on "Warn me about my area" on the web page. The ward engineer is notified, and the district health officer if nobody acts within 24 hours.
-4. **Act.** Officials review reports on the dashboard, mark them resolved or false (false reports are left out of the cluster rule), and can issue a boil-water or do-not-use warning for a 500 m, 1 km or 2 km radius, then lift it with an all-clear.
+1. **Report.** A resident messages the WhatsApp bot, or opens the web report page (`/report`) with no sign-up. They can tap tiles, type, send a photo or a location pin, or speak: WhatsApp voice notes and web recordings are transcribed by Amazon Transcribe (Hindi or Indian English, detected automatically), and the reply starts with "I heard: …" so they can check it. A model on Amazon Bedrock fills in the smell, colour, taste, how long it has been happening and whether anyone is sick; code saves the report and replies in English, Hindi or Hinglish with conservative advice (boil water, ORS, call 108 for blood in stool or dehydration). WhatsApp asks for a location pin if there isn't one.
+2. **Detect.** Every 15 minutes a cluster check looks at each area (a ~1.2 × 0.6 km cell and its neighbours) over the last 48 hours. 3+ distinct phones (or enough severity) is a **Watch**; 5+ distinct phones or 2+ households with someone sick is an **Alert**.
+3. **Alert.** On an Alert, WhatsApp subscribers in the area get a boil-water advisory as text, browsers that turned on "Warn me about my area" get a web push notification, and the ward engineer gets an email (Amazon SNS). If nobody acknowledges it within 24 hours, the district health officer is emailed too.
+4. **Act.** Officials review reports on the dashboard and mark them reviewing, resolved or false (false reports leave the cluster rule). They can issue a boil-water or do-not-use warning for a 500 m, 1 km or 2 km circle, which goes to the WhatsApp and push subscribers inside it, and lift it with an all-clear to the same people. Marking an alerted cluster fixed sends an all-clear too. Every alert, message, email and status change is in the Activity log.
+
+## Results
+
+**Reading messages** (`docs/eval.md`): 50 labelled messages (Hindi in Roman and Devanagari script, English, Hinglish with typos, negations); a message counts only if all five fields are right.
+
+| How a message is read | All five fields right | Median time |
+|---|---|---|
+| Keyword rules (`src/agent/fallback.py`), before tuning | 33/50 (66%) | instant |
+| Agent decides when to call a save tool (Bedrock, Oct 10) | 19–21/50 (38–42%) | 3.0 s |
+| **Forced structured extraction, code saves** (Qwen3 235B on Bedrock) | **45–46/50 (90–92%)** | **1.2 s** |
+
+Caveat: these 50 messages were also used to write the keyword rules and the field descriptions, so the numbers overstate real accuracy; a fresh holdout set written by someone who hasn't seen the rules is still to be scored.
+
+**Indore replay** (`docs/replay.md`). **SIMULATION**: synthetic reports shaped on the Bhagirathpura timeline, run through the real cluster rule. Assumed: 1,000 households on the supply, 2–10% of them report once, mostly from 25 Dec, 60% of those after 27 Dec mention sickness.
+
+| Adoption | Reporting households | First Watch | First Alert | Alert before the first illness (27 Dec), 100 seeds: median (range) |
+|---|---|---|---|---|
+| 2% | 20 | 25 Dec 17:00 | 26 Dec 15:00 | 0.5 days (−1.4 to 1.4); before it in 90 of 100 runs |
+| 5% | 50 | 25 Dec 12:00 | 26 Dec 08:00 | 1.4 days (0.6 to 10.2) |
+| 10% | 100 | 16 Dec 11:00 | 25 Dec 12:00 | 1.6 days (1.4 to 11.1) |
+
+The three false-alarm cases (one person sending 10 complaints, murky water that clears quickly after supply resumes, and complaints inside an announced maintenance area) all stayed at Watch. The usual lead is about a day and a half, not weeks; it does not show that people would have used PaaniAlert or that acting earlier would have saved lives.
+
+## Safety model
+
+- **The model reads, code decides.** The model only fills report fields (a forced structured output). Code decides what counts as a complaint, saves it and writes every reply from fixed templates; a guard strips any model reply that calls the water "safe". If no model answers, keyword rules still save the report.
+- **Distinct phones, not message counts.** One person sending many messages can reach Watch at most.
+- **Maintenance cap.** An announced maintenance notice in the area caps a cluster at Watch.
+- **False reports excluded.** Reports officials mark false leave the cluster rule at the next check.
+- **Phone numbers are hashed** (HMAC) in reports. The dashboard shows a masked number and WhatsApp name; the full number is only in a separate Contacts table, read through one audited endpoint.
+- **The public page shows only clusters rounded to about 100 m** and active official warnings, with no report text or identities.
+- **Two-step warnings.** Officials choose a circle, see how many people it would reach, then confirm. Lifting sends the all-clear to exactly the people who were warned.
+- **Quotas and throttling.** Each web device can send 10 reports a day; the public routes are throttled at API Gateway.
+- **No stored model keys.** Bedrock is called with short-lived tokens signed from the Lambda's IAM role.
+- **Processing stays in Mumbai.** Bedrock, Transcribe, Location and storage all run in `ap-south-1`. (WhatsApp messages reach us through Twilio.)
+- **Media is deleted after 7 days** (photos, voice notes, transcripts).
+
+## Limitations
+
+- Voice reports take about 30–45 seconds, because Amazon Transcribe batch jobs have a fixed start-up time. Streaming transcription would be near-instant and is the next step. If a recording can't be transcribed, the bot asks the person to type instead.
+- WhatsApp runs on the Twilio sandbox: people must send the join message first, access lasts 72 hours, and WhatsApp only lets us message someone within 24 hours of their last message, so alerts to quiet subscribers can fail (each failure is logged).
+- Web reports come from an anonymous device id, which can be faked; the daily quota and the distinct-phones rule limit the damage but don't prevent it.
+- The cluster thresholds are untested in the field; the replay is a simulation.
+- Extraction accuracy is measured on our own test set (see the caveat above).
+- Push warnings on iPhone need the page added to the Home Screen first (iOS 16.4+). Older Safari can't record WebM, so the record button is hidden there.
 
 ## Architecture
 
 ```
-WhatsApp (Twilio) ─► API Gateway ─► Lambda (instant reply) ─► SQS ─► Lambda worker ─► Strands agent (Amazon Bedrock)
-                                                                                     ├─ Amazon Transcribe (voice notes)
-                                                                                     ├─ Amazon Location Service
-                                                                                     └─ DynamoDB · S3
-Web report page (/report) ─► API Gateway ─► Lambda (same worker logic, photos to S3)
-                              └─ recordings: 202 ─► SQS ─► Lambda worker (Transcribe) ─► page polls the result
-EventBridge (every 15 min) ─► Lambda cluster check ─► SNS (officials) + WhatsApp and web push advisories (residents)
-Amplify dashboard ◄─ API Gateway ◄─ Lambda API
+WhatsApp (Twilio) ─► API Gateway ─► Lambda webhook (instant reply) ─► SQS ─► Lambda worker
+                                                                              ├─ Amazon Transcribe (voice notes)
+                                                                              ├─ Amazon Bedrock, bedrock-mantle, ap-south-1 (Qwen3)
+                                                                              ├─ Amazon Location Service (place names)
+                                                                              └─ DynamoDB (reports, sessions) · S3 (media, 7 days)
+Web report page /report ─► API Gateway ─► Lambda (same worker logic; photos and recordings to S3 by presigned PUT)
+                                            └─ recordings: 202 ─► SQS ─► worker (Transcribe) ─► page polls the result
+EventBridge (every 15 min) ─► Lambda cluster check ─► SNS email (ward engineer; health officer after 24 h)
+                                                   └─ WhatsApp advisories + web push (subscribers in the area)
+Officials' dashboard (Amplify) ◄─► API Gateway ◄─► Lambda API ─► warnings and all-clears (WhatsApp + web push)
+                                                              ├─ Activity table (every alert, message and status change)
+                                                              └─ AuditLog (every time a full number is shown)
+Public map /public ◄─ public routes (rounded clusters, active warnings)
 Deployed with AWS SAM · logs in CloudWatch · region ap-south-1 (Mumbai)
 ```
 
@@ -36,113 +107,66 @@ Deployed with AWS SAM · logs in CloudWatch · region ap-south-1 (Mumbai)
 | Service | What it does here |
 |---|---|
 | AWS Lambda | Webhook, worker, web report API, cluster check, dashboard API |
-| Amazon API Gateway (HTTP API) | Twilio webhook, web report routes, dashboard API |
+| Amazon API Gateway (HTTP API) | Twilio webhook, web report routes (throttled), dashboard API |
 | Amazon SQS | Queue between the webhook (or a web voice report) and the worker, with a dead-letter queue |
-| Amazon Bedrock | Reads each message into report fields (Qwen3 through `bedrock-mantle`) |
+| Amazon Bedrock | Reads each message into report fields (Qwen3 235B, Qwen3 VL as backup) through `bedrock-mantle` in Mumbai |
 | Amazon Transcribe | Batch transcription of WhatsApp voice notes (OGG/Opus) and web recordings (WebM/Opus), Hindi or Indian English |
-| Amazon DynamoDB | Reports, clusters, subscribers, sessions, advisories, web voice request status |
+| Amazon DynamoDB | Reports, clusters, subscribers, sessions, warnings, Activity, AuditLog, contacts, quotas |
 | Amazon S3 | Photos, voice notes and transcripts, deleted after 7 days |
-| Amazon Location Service | Place names for pins; map tiles on the dashboard |
-| Amazon SNS | Emails to the ward engineer and district health officer |
+| Amazon Location Service | Place names for pins; map tiles on the dashboard and resident pages |
+| Amazon SNS | Emails to the ward engineer and the district health officer |
 | Amazon EventBridge | Runs the cluster check every 15 minutes |
-| AWS Systems Manager Parameter Store | Secrets (Twilio, HMAC, dashboard key, VAPID) |
-| AWS Amplify Hosting | Dashboard, public warnings page and web report page |
+| AWS Systems Manager Parameter Store | Secrets (Twilio, HMAC key, dashboard key, web push keys) |
+| AWS Amplify Hosting | Officials' dashboard, public map and web report page |
+| Amazon CloudWatch | Logs for every function |
+| AWS IAM | One least-privilege role per function; short-lived Bedrock tokens |
+
+## Run it yourself
+
+Prerequisites: Python 3.12, Node.js 20+, AWS CLI v2, AWS SAM CLI, and an AWS profile (`paani` in the scripts) in `ap-south-1` with Bedrock model access.
+
+```bash
+python -m venv .venv && source .venv/bin/activate     # Windows: py -3.12 -m venv .venv; .venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+pytest                                                 # fake AWS (moto); no account needed
+cd dashboard && npm ci && npm run build
+```
+
+Secrets go in SSM Parameter Store as SecureStrings under `/paanialert/`: `hmac_secret`, `dashboard_key`, `twilio_account_sid`, `twilio_auth_token`, and `vapid_public_key` / `vapid_private_key` for web push. On Git Bash, prefix `aws ssm` commands with `MSYS_NO_PATHCONV=1`.
+
+```bash
+py -3.12 scripts/deploy_backend.py      # sam build + deploy (add --layer after changing layer/requirements.txt)
+python scripts/deploy_dashboard.py      # build the dashboard and publish it on Amplify
+```
+
+Then paste the stack's `WebhookUrl` output into the Twilio WhatsApp sandbox ("When a message comes in", POST), and subscribe officials' emails to the `WardEngineerTopicArn` and `HealthOfficerTopicArn` outputs.
+
+Test data without real phones (made-up phone hashes, so nobody is messaged for them):
+
+```bash
+python scripts/fake_reports.py --near 22.7186,75.8553 --phones 6 --sick 2           # Rajwada: an Alert
+python scripts/fake_reports.py --near 22.7533,75.8937 --phones 3 --check            # Vijay Nagar: a Watch
+python scripts/fake_reports.py --clean                                              # remove all test data
+```
+
+`/health` returns `{"ok": true}`. Everything is serverless, so the stack stays live until it is deleted.
 
 ## Repo layout
 
-| Path | What | Owner |
-|---|---|---|
-| `template.yaml` | Every AWS resource | A · Backend & alerts |
-| `src/common/` | Shared config, records, DynamoDB helpers | A (B owns `twilio_send.py`) |
-| `src/webhook/` | Twilio webhook: validate, queue, reply instantly | A |
-| `src/worker/` | Queue consumer: runs the agent, sends the reply | B · Agent & WhatsApp |
-| `src/agent/` | Prompts, model extraction, keyword fallback, voice transcription | B |
-| `src/cluster/` | Cluster rule and the scheduled check | A |
-| `src/api/` | Dashboard API | A |
-| `dashboard/` | React + MapLibre dashboard on Amplify | C · Dashboard & story |
-| `data/` | Test messages, Indore replay, Delhi area profiles | C (A owns `area_profiles.json`) |
-| `scripts/` | Fake reports, replay, extraction eval | A, B |
-| `tests/` | Unit tests | A, B |
-| `docs/` | Sources, video script, writeup | C |
-
-All Lambda functions share one code folder (`src/`), so anything in `src/common/` can be imported everywhere. Libraries are listed in `layer/requirements.txt` and shipped as one Lambda layer.
-
-## Getting started
-
-Prerequisites: Git, Python 3.12, Node.js 20+, AWS CLI v2, AWS SAM CLI, and an AWS profile named `paani` for the team account in `ap-south-1`.
-
-```bash
-python -m venv .venv                 # Windows with several Pythons: py -3.12 -m venv .venv
-source .venv/bin/activate            # Windows PowerShell: .venv\Scripts\Activate.ps1
-pip install -r requirements-dev.txt
-pytest
-```
-
-Secrets live in SSM Parameter Store, never in this repo. `hmac_secret` and `dashboard_key` already exist in the team account. Add the Twilio ones once the sandbox is set up (on Git Bash, prefix with `MSYS_NO_PATHCONV=1` so `/paanialert/...` isn't turned into a file path):
-
-```bash
-aws ssm put-parameter --profile paani --type SecureString --name /paanialert/twilio_account_sid --value <sid>
-aws ssm put-parameter --profile paani --type SecureString --name /paanialert/twilio_auth_token --value <token>
-```
-
-Build and deploy in one step (it packages the Python libraries for Lambda's Linux even from Windows, and builds outside the repo so OneDrive can't lock files):
-
-```bash
-py -3.12 scripts/deploy_backend.py          # add --layer after changing layer/requirements.txt
-python scripts/deploy_dashboard.py          # dashboard → Amplify
-```
-
-Read the dashboard key with `aws ssm get-parameter --profile paani --name /paanialert/dashboard_key --with-decryption --query Parameter.Value --output text`.
-
-### Live stack
-
-| What | URL |
+| Path | What |
 |---|---|
-| Health check | `https://ayx7njx4g6.execute-api.ap-south-1.amazonaws.com/health` |
-| Twilio webhook (POST) | `https://ayx7njx4g6.execute-api.ap-south-1.amazonaws.com/whatsapp` |
-| Dashboard API | `https://ayx7njx4g6.execute-api.ap-south-1.amazonaws.com` (`/reports`, `/clusters`, `/advisories`, `/public/clusters`, `/public/advisories`) |
-| Officials dashboard | `https://main.dy95ki8l9ef8x.amplifyapp.com` (needs the dashboard key) |
-| Web report page | `https://main.dy95ki8l9ef8x.amplifyapp.com/report` (no sign-up) |
-| Public warnings page | `https://main.dy95ki8l9ef8x.amplifyapp.com/public` |
-
-Everything is serverless (Lambda, API Gateway, DynamoDB on demand, SQS) and the dashboard is a static build on Amplify Hosting, so nothing needs to be kept running: the stack stays live until it is deleted. To keep it up:
-
-- Turn on termination protection so a stray `sam delete` can't remove it: `aws cloudformation update-termination-protection --enable-termination-protection --stack-name paanialert --profile paani --region ap-south-1`.
-- Keep the account's billing valid. The monthly cost budget only emails; it doesn't stop anything.
-- Deploy only from a tested `main`. A failed backend deploy rolls back by itself; a bad dashboard deploy can be undone by redeploying an earlier job in the Amplify console.
-- `/health` returns `{"ok": true}`; point any uptime monitor at it.
-
-### Try it without five phones
-
-```bash
-python scripts/fake_reports.py --near 22.7196,75.8577 --phones 5 --sick 2 --check   # makes an Alert
-python scripts/fake_reports.py --clean                                              # removes all fake data
-```
-
-Fake reports use made-up phone hashes, so nobody is messaged. To get the official emails, subscribe an address to the `WardEngineerTopicArn` and `HealthOfficerTopicArn` stack outputs (SNS console → Subscriptions → Create subscription → Email) and confirm it. For a demo of escalation, deploy with `--parameter-overrides EscalateAfterMin=10`.
-
-The agent reads each message with Qwen3 235B (Qwen3 VL as backup, `ModelIds` parameter) through Bedrock's OpenAI-compatible `bedrock-mantle` endpoint in Mumbai, authenticated with short-lived tokens from the worker's IAM role. The model fills the report fields (a forced structured-output call); code saves the report and writes the reply. If no model answers, the worker falls back to keyword extraction (`src/agent/fallback.py`) so reports, clusters and alerts keep working; each report's `extracted_by` shows which one read it. See `docs/bedrock-access.md` and `docs/eval.md`.
-
-### Web report app (`/report`)
-
-A second way to report, for people who haven't joined the Twilio sandbox: `https://<dashboard>/report` on a phone. One screen with the reply language (English, हिंदी, Hinglish), the message, a location (browser location or a tap on the map) and an optional photo. It calls the public `POST /app/report` (`src/api/app_report.py`), which runs the same `worker.handle()` as WhatsApp with `channel = "app"` and returns the bot's reply. Photos go straight to S3 under `app-uploads/` through `POST /app/photo-url` (presigned PUT, 5 minutes, JPEG or PNG, at most 5 MB). Both routes are throttled (1 request/s, burst 5, shared by everyone), and each device (a random id kept in the browser) can send 10 reports a day. Officials see app reports with a 📱 label.
-
-The page also has a large "Hold to Speak or Tap to Record" button (up to 60 seconds, with a timer, playback and Record Again). The recording (WebM/Opus, at most 2 MB) is uploaded through `POST /app/audio-url` to `app-uploads/<device>/audio/`. Because transcription can take longer than API Gateway's 30 seconds, `POST /app/report` with an `audio_key` answers 202 and puts the report on the worker's queue; the worker transcribes it and handles it like a typed message, and the page polls `GET /app/report/{request_id}` every 2 seconds for up to 75 seconds, showing three steps that tick off (Uploaded → Listening → Reading your report) and the time so far, then shows "I heard: …" on the confirmation card. The pending request is remembered in the browser for a day, so the page can be closed: reopening `/report` picks it up again, and a wait past 75 seconds shows "Still processing" with a Check Again button instead of an error. Typed and tile reports are answered synchronously as before. On the dashboard, voice reports carry a 🎤 Voice label, the transcript and a Play Recording button (a 5-minute link).
-
-If the pin or the device's location is inside an active warning, the page shows a red banner at the top (it checks `GET /public/advisories` on open and every 60 seconds). The "Warn me about my area" switch subscribes the browser to web push for the area around its pin (`POST /app/subscribe`, service worker `/sw.js`, VAPID keys in SSM as `/paanialert/vapid_*`). Automatic Alerts, officials' warnings and all-clears are pushed to those browsers in their language; subscriptions the push service rejects are removed.
-
-## Limitations
-
-- Voice reports take about 30–45 seconds, because Amazon Transcribe batch jobs have a fixed start-up time. Streaming transcription would be near-instant and is the next step. The worker waits at most 60 seconds per recording. If a recording can't be transcribed (failed, too slow or silent), the bot asks the person to type instead; the recording is kept for 7 days but no report is saved from it. Only Hindi (`hi-IN`) and Indian English (`en-IN`) are recognised; Hinglish speech comes back as one of the two.
-- The web recorder needs MediaRecorder with WebM/Opus (Chrome, Edge, Firefox, Android). Where that isn't available (for example older Safari on iPhone), the record button is hidden and people tap or type instead.
-- Throttling on the public web routes is shared by everyone, not per person.
-- The cluster rule's thresholds are fixed, not tuned on real outbreak data; the Indore replay is a simulation.
-
-## Working together
-
-- Small pull requests into `main`. Whoever merges deploys.
-- The shared records in `src/common/models.py` are the contract between the three of us. Change a field only after telling the team.
-- No secrets in code, commits, chat or screenshots.
+| `template.yaml` | Every AWS resource (AWS SAM) |
+| `src/webhook/` | Twilio webhook: check the signature, queue, reply instantly |
+| `src/worker/` | Queue consumer: transcribe, read, save, reply |
+| `src/agent/` | Prompts and fixed replies, Bedrock extraction, keyword fallback, Transcribe, media |
+| `src/api/` | Dashboard API, warnings, web report API |
+| `src/cluster/` | The cluster rule (pure function) and the scheduled check |
+| `src/common/` | Records, DynamoDB helpers, geohash, hashing, place names, web push, Twilio |
+| `dashboard/` | React + MapLibre: officials' dashboard, `/public`, `/report` (installable PWA) |
+| `data/` | Labelled test messages and the replay data (SIMULATION) |
+| `scripts/` | Deploy, test data, replay, extraction eval |
+| `tests/` | Unit tests against fake AWS |
+| `docs/` | Sources, eval, replay, Bedrock access, Android app, screenshots |
 
 ## Team
 
